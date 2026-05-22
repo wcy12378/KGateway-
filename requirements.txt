@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+pydantic>=2.0
+neo4j
+qdrant-client
+langfuse
+redis[hiredis]
+httpx
+numpy
+sentence-transformers
+rank-bm25
+jieba
