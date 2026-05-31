@@ -57,6 +57,11 @@ class GatewayConfig:
     circuit_breaker_threshold: int = field(default_factory=lambda: int(os.getenv("CB_FAILURE_THRESHOLD", "5")))
     circuit_breaker_timeout: int = field(default_factory=lambda: int(os.getenv("CB_RECOVERY_TIMEOUT", "60")))
 
+    # LangFuse 可观测性（可选）
+    langfuse_public_key: str = field(default_factory=lambda: os.getenv("LANGFUSE_PUBLIC_KEY", ""))
+    langfuse_secret_key: str = field(default_factory=lambda: os.getenv("LANGFUSE_SECRET_KEY", ""))
+    langfuse_host: str = field(default_factory=lambda: os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com"))
+
     # 模型定价
     model_pricing: Dict[str, ModelPricing] = field(default_factory=lambda: DEFAULT_MODEL_PRICING.copy())
 

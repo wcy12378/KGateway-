@@ -51,7 +51,7 @@ KGateway 是一个**生产级 AI 基础设施平台**，由四个紧密协作的
 
 | 子系统 | 语言 | 定位 | 端口 |
 |--------|------|------|------|
-| **[KGateway](ai_gateway/)** | Python | 企业级 LLM 网关 — 统一路由、语义缓存、成本管控 | `8000` |
+| **[KGateway](src/)** | Python | 企业级 LLM 网关 — 统一路由、语义缓存、成本管控 | `8000` |
 | **[OmniParse ETL](omniparse_etl/)** | Python | 多模态文档解析与向量入库流水线 | `8001` |
 | **[LangGraph Adaptive RAG](langgraph_adaptive_rag_engine/)** | Python | 自适应检索增强生成 — 幻觉自纠与查询重写 | — |
 | **[CC-Connect Bridge](cc-connect-bridge/)** | Go | AI 编码代理 × 聊天平台桥接（Claude Code, Codex 等） | — |
@@ -112,6 +112,8 @@ Upload (FastAPI) ──▶ Parse (Unstructured PDF) ──▶ Chunk (EnterpriseC
   Celery 异步          VLM 图片描述              表格永不碎片化            租户元数据索引
 ```
 
+> ⚠️ OmniParse ETL 已拆分为独立仓库，以下路径为参考。
+
 | 特性 | 源码位置 |
 |------|----------|
 | **多模态 PDF 解析** (文本+表格+图片) | `omniparse_etl/src/parsers/pdf_parser.py:30-80` |
@@ -138,6 +140,8 @@ flowchart TD
     HALLUCINATION -- "NOT_SUPPORTED ✗ & count < 2" --> REWRITE["🔄 Rewrite Query"]
     REWRITE --> RETRIEVE
 ```
+
+> ⚠️ LangGraph Adaptive RAG 已拆分为独立仓库，以下路径为参考。
 
 | 特性 | 源码位置 |
 |------|----------|
@@ -300,31 +304,31 @@ KGateway-/
 ├── docker-compose.yml            # 全栈 7 服务编排
 ├── Dockerfile.gateway             # KGateway 容器构建
 ├── Dockerfile.etl                 # ETL 容器构建
+├── requirements.txt               # Python 依赖
 │
-├── ai_gateway/                    # ── KGateway: LLM 网关 ──
-│   ├── src/
-│   │   ├── main.py                # FastAPI 入口 (port 8000)
-│   │   ├── config.py              # 环境变量配置
-│   │   ├── api/routes.py          # SSE 流式端点
-│   │   ├── agents/runtime.py      # FSM Agent 运行时
-│   │   ├── core/
-│   │   │   ├── cache.py           # Redis 向量语义缓存
-│   │   │   ├── fusion.py          # RRF 排序融合
-│   │   │   ├── reranker.py        # BGE CrossEncoder 精排
-│   │   │   ├── router.py          # 动态模型路由 + 成本估算
-│   │   │   ├── protection.py      # 三态熔断器
-│   │   │   ├── observability.py   # LangFuse + Prometheus
-│   │   │   └── schemas.py         # Pydantic 请求/响应模型
-│   │   └── db/
-│   │       ├── qdrant_client.py   # Qdrant 向量库 (多租户)
-│   │       ├── bm25_client.py     # BM25 稀疏检索
-│   │       └── neo4j_client.py    # Neo4j 图数据库
-│   ├── tests/
-│   │   ├── test_storage.py        # pytest 单元测试
-│   │   └── locustfile.py          # Locust 负载测试
-│   └── requirements.txt
+├── src/                           # ── KGateway: LLM 网关 ──
+│   ├── main.py                    # FastAPI 入口 (port 8000)
+│   ├── config.py                  # 环境变量配置
+│   ├── api/routes.py              # SSE 流式端点
+│   ├── agents/runtime.py          # FSM Agent 运行时
+│   ├── core/
+│   │   ├── cache.py               # Redis 向量语义缓存
+│   │   ├── fusion.py              # RRF 排序融合
+│   │   ├── reranker.py            # BGE CrossEncoder 精排
+│   │   ├── router.py              # 动态模型路由 + 成本估算
+│   │   ├── protection.py          # 三态熔断器
+│   │   ├── observability.py       # LangFuse + Prometheus
+│   │   └── schemas.py             # Pydantic 请求/响应模型
+│   └── db/
+│       ├── qdrant_client.py       # Qdrant 向量库 (多租户)
+│       ├── bm25_client.py         # BM25 稀疏检索
+│       └── neo4j_client.py        # Neo4j 图数据库
 │
-├── omniparse_etl/                 # ── OmniParse ETL: 文档解析 ──
+├── tests/                         # ── 测试 ──
+│   ├── test_storage.py            # pytest 单元测试
+│   └── locustfile.py              # Locust 负载测试
+│
+├── omniparse_etl/                 # ── OmniParse ETL: 文档解析 (独立仓库) ──
 │   ├── src/
 │   │   ├── main.py                # FastAPI 入口 (port 8001)
 │   │   ├── api/upload.py          # 文件上传端点
@@ -337,7 +341,7 @@ KGateway-/
 │   │       └── ingestion.py       # Qdrant 向量化入库
 │   └── requirements.txt
 │
-├── langgraph_adaptive_rag_engine/ # ── Adaptive RAG: 自适应检索 ──
+├── langgraph_adaptive_rag_engine/ # ── Adaptive RAG: 自适应检索 (独立仓库) ──
 │   ├── src/
 │   │   ├── main.py                # 入口 (运行 2 个 Demo Case)
 │   │   ├── graph.py               # 核心 LangGraph 状态图 (8 节点)
@@ -347,7 +351,7 @@ KGateway-/
 │   ├── test_sanity.py
 │   └── pyproject.toml
 │
-└── cc-connect-bridge/             # ── CC-Connect: AI 代理桥接 ──
+└── cc-connect-bridge/             # ── CC-Connect: AI 代理桥接 (独立仓库) ──
     ├── cmd/cc-connect/            # Go CLI 入口
     ├── agent/                     # 12 个 Agent 适配器
     ├── platform/                  # 12 个平台适配器
@@ -384,15 +388,18 @@ KGateway-/
 
 ---
 
-## 📊 性能指标
+## 📊 设计目标（待压测验证）
 
-| 指标 | 目标 | 实际 |
-|------|------|------|
-| 请求延迟 (p99) | < 500ms | **120ms** |
-| 缓存命中率 | > 40% | **42.6%** |
-| 吞吐量 (RPS) | > 1,000 | **1,500+** |
-| Agent 迭代安全 | 100% | ✅ 最大 4 次迭代 |
-| 多租户隔离 | 零泄露 | ✅ Bitmap 预过滤 |
+> ⚠️ 以下为架构设计目标值，尚未在真实负载下进行基准测试。
+> 所有指标基于各模块理论延迟累加推算，实际值取决于 LLM API 响应时间、部署硬件规格和并发模式。
+
+| 指标 | 设计目标 | 验证状态 |
+|------|---------|---------|
+| 请求延迟 (p99) | < 500ms | 待压测 |
+| 缓存命中率 | > 40% | 待压测 |
+| 吞吐量 (RPS) | > 1,000 | 待压测 |
+| Agent 迭代安全 | 100% 有界终止 | ✅ 代码保证 |
+| 多租户隔离 | 零泄露 | ✅ 代码保证 |
 
 ---
 
@@ -401,7 +408,6 @@ KGateway-/
 ### KGateway 单元测试
 
 ```bash
-cd ai_gateway
 pip install -r requirements.txt
 pytest tests/test_storage.py -v
 ```
@@ -409,7 +415,6 @@ pytest tests/test_storage.py -v
 ### Locust 负载测试
 
 ```bash
-cd ai_gateway
 locust -f tests/locustfile.py \
   --host=http://localhost:8000 \
   --users=100 \

@@ -201,9 +201,9 @@ class GatewayObserver:
         """初始化 LangFuse 客户端（可选，失败时降级为本地追踪）。"""
         try:
             from langfuse import Langfuse
-            public_key = config.langfuse_public_key if hasattr(config, "langfuse_public_key") else ""
-            secret_key = config.langfuse_secret_key if hasattr(config, "langfuse_secret_key") else ""
-            host = config.langfuse_host if hasattr(config, "langfuse_host") else "https://cloud.langfuse.com"
+            public_key = config.langfuse_public_key
+            secret_key = config.langfuse_secret_key
+            host = config.langfuse_host
 
             if public_key and secret_key:
                 self._langfuse_client = Langfuse(

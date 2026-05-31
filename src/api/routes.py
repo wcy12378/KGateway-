@@ -56,6 +56,7 @@ def init_router(
     _circuit_breaker = circuit_breaker
 
 
+# ── [DEMO_MODE] 生产环境替换为真实 LLM API 调用 ─────────────────
 # ── 模拟 Dense 检索 ────────────────────────────────────────────
 
 async def _mock_dense_search(
@@ -83,6 +84,7 @@ def _sse_done() -> str:
     return "data: [DONE]\n\n"
 
 
+# ── [DEMO_MODE] 生产环境替换为真实 LLM API 调用 ─────────────────
 # ── 模拟向量生成 ───────────────────────────────────────────────
 
 def _mock_embed(text: str) -> List[float]:
@@ -142,6 +144,7 @@ async def _rag_pipeline(
     return rerank_results, rag_metrics
 
 
+# ── [DEMO_MODE] 生产环境替换为真实 LLM API 调用 ─────────────────
 # ── 模拟 LLM 吐字 ──────────────────────────────────────────────
 
 async def _simulate_llm_tokens(

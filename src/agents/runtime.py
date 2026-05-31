@@ -178,7 +178,10 @@ class AgentRuntime:
 {{"thought": "你的分析思考", "action": "选择的工具名称", "action_input": "工具的输入参数"}}
 """
 
-        # ── 模拟 LLM 返回（生产环境替换为真实 API 调用）────────
+        # ── [DEMO_MODE] 以下为硬编码策略决策，生产环境应替换为真实 LLM API 调用 ──
+        # 生产架构：planner_node 应通过 ModelRouter 调用 LLM，传入 prompt + 工具描述 + 历史轨迹，
+        # 解析 LLM 返回的 JSON 来获取 {"thought", "action", "action_input"}。
+        # 当前实现通过迭代次数 + 上下文状态模拟 LLM 决策，用于演示完整 pipeline 流程。
         # 根据迭代次数和上下文决定策略
         if state.iteration == 1:
             # 第一次：总是先尝试 RAG 检索

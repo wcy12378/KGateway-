@@ -172,14 +172,14 @@ class SparseRetriever:
             if tf == 0:
                 continue
 
-            # BM25 formula
-            doc_len = sum(
-                len(dt) for dt, did in zip(
-                    doc_tokens_list,
-                    list(self._tenant_dept_index.get(index_key, set())),
-                )
-                if did == doc_id
-            ) if doc_tokens_list else avg_dl
+            # BM25 formula — doc_len: 从倒排索引中反向查找当前文档的 token 数
+            # 先收集当前文档在索引中出现过的所有 token 对应的 tf，累计作为 doc_len 的近似
+            doc_len = 0
+            for qt_check in query_tokens:
+                doc_len += self._inverted_index[qt_check].get(doc_id, 0)
+            if doc_len == 0:
+                # 文档不在任何查询词的倒排索引中，用平均文档长度兜底
+                doc_len = avg_dl
 
             tf_norm = (tf * (self.k1 + 1)) / (tf + self.k1 * (1 - self.b + self.b * doc_len / avg_dl))
             score += idf * tf_norm
