@@ -130,7 +130,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.circuit_breaker = circuit_breaker
 
     logger.info("KGateway 全部组件已初始化（含缓存+熔断），等待请求...")
-    print("[KGateway] 网关已启动，端点: POST /api/v1/gateway/stream")
+    logger.info("网关已启动，端点: POST /api/v1/gateway/stream")
 
     yield
 

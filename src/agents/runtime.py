@@ -212,13 +212,14 @@ class AgentRuntime:
         }
         state.steps.append(step_record)
 
-        # 控制台 verbose 打印
-        print(f"\n{'='*60}")
-        print(f"🧠 [Planner] 第 {state.iteration}/{state.max_iterations} 次思考")
-        print(f"   💭 Thought: {planner_output['thought']}")
-        print(f"   🎯 Action:  {planner_output['action']}")
-        print(f"   📝 Input:   {planner_output['action_input'][:100]}...")
-        print(f"{'='*60}")
+        # 结构化日志输出
+        logger.info(
+            "Planner 第 %d/%d 次思考 | action=%s | thought=%s | input=%s",
+            state.iteration, state.max_iterations,
+            planner_output["action"],
+            planner_output["thought"][:80],
+            planner_output["action_input"][:100],
+        )
 
         # 设置下一步
         state.next_node = "executor_node"
@@ -244,7 +245,7 @@ class AgentRuntime:
         if action == "finish":
             state.final_answer = action_input
             state.next_node = "END"
-            print(f"\n✅ [Executor] Planner 决定输出最终回答，图执行结束")
+            logger.info("Planner 决定输出最终回答，图执行结束")
             return state
 
         # 执行工具
@@ -260,10 +261,7 @@ class AgentRuntime:
         if action == "query_local_knowledge":
             state.rag_context = observation
 
-        print(f"\n🔧 [Executor] 工具执行完成")
-        print(f"   ⚡ Action: {action}")
-        print(f"   ⏱️  耗时: {exec_ms:.1f}ms")
-        print(f"   📋 Observation: {observation[:200]}...")
+        logger.info("Executor 工具执行完成 | action=%s | 耗时=%.1fms | observation=%s", action, exec_ms, observation[:200])
 
         # 回到 Planner 进行下一轮决策
         state.next_node = "planner_node"
@@ -281,11 +279,10 @@ class AgentRuntime:
             state.iteration, state.max_iterations,
         )
 
-        print(f"\n{'!'*60}")
-        print(f"🚨 [Fallback] 安全沙箱触发！迭代次数 {state.iteration}/{state.max_iterations}")
-        print(f"   💰 保护措施: 切换到低成本小模型输出降级回答")
-        print(f"   🛡️  防止 Token 盗刷: 已强行终止工具调用循环")
-        print(f"{'!'*60}")
+        logger.warning(
+            "Fallback 安全沙箱触发！迭代次数 %d/%d，切换到低成本小模型输出降级回答",
+            state.iteration, state.max_iterations,
+        )
 
         # 降级回答：使用最基础的信息生成
         rag_hint = ""
@@ -330,12 +327,11 @@ class AgentRuntime:
         state.max_iterations = self.max_iterations
         t_start = time.perf_counter()
 
-        print(f"\n{'#'*60}")
-        print(f"🚀 [AgentRuntime] 图执行器启动")
-        print(f"   📋 Query: {state.request.question[:80]}...")
-        print(f"   🏢 Tenant: {state.request.tenant_id} / Dept: {state.request.department.value}")
-        print(f"   🔒 安全沙箱: max_iterations={state.max_iterations}")
-        print(f"{'#'*60}")
+        logger.info(
+            "AgentRuntime 图执行器启动 | query=%s | tenant=%s | dept=%s | max_iterations=%d",
+            state.request.question[:80], state.request.tenant_id,
+            state.request.department.value, state.max_iterations,
+        )
 
         try:
             while state.next_node != "END":
@@ -369,7 +365,7 @@ class AgentRuntime:
                         break
                 except Exception as exc:
                     logger.exception("节点 %s 执行异常: %s", state.next_node, exc)
-                    print(f"\n❌ [Runtime] 节点 {state.next_node} 异常: {exc}")
+                    logger.error("节点 %s 异常: %s", state.next_node, exc)
                     state = await self.fallback_node(state)
                     break
 
@@ -385,22 +381,15 @@ class AgentRuntime:
         return state
 
     def _print_execution_trace(self, state: AgentState, total_ms: float) -> None:
-        """打印完整的执行轨迹，用于调试和可观测性。"""
-        print(f"\n{'─'*60}")
-        print(f"📊 [Execution Trace] 执行轨迹汇总")
-        print(f"   ⏱️  总耗时: {total_ms:.1f}ms")
-        print(f"   🔢 总迭代: {state.iteration}/{state.max_iterations}")
-        print(f"   📝 轨迹步数: {len(state.steps)}")
-        print(f"   📄 回答长度: {len(state.final_answer)} 字符")
-        print(f"{'─'*60}")
-
+        """记录完整的执行轨迹，用于调试和可观测性。"""
+        logger.info(
+            "Execution Trace | 总耗时=%.1fms | 迭代=%d/%d | 步数=%d | 回答长度=%d",
+            total_ms, state.iteration, state.max_iterations,
+            len(state.steps), len(state.final_answer),
+        )
         for i, step in enumerate(state.steps):
             node = step.get("node", "unknown")
             thought = step.get("thought", "")[:80]
             action = step.get("action", "N/A")
             obs = step.get("observation", "")[:100]
-            print(f"   [{i+1}] {node}")
-            print(f"       💭 {thought}")
-            print(f"       🎯 {action} → {obs[:60]}...")
-
-        print(f"{'─'*60}\n")
+            logger.info("  [%d] %s | %s | %s → %s", i + 1, node, thought, action, obs[:60])

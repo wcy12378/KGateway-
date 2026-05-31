@@ -156,7 +156,6 @@ class ModelRouter:
         async with self._lock:
             total = self.token_counter.total_cost()
         logger.info("本次会话累计预估成本: $%.6f", total)
-        print(f"\n[KGateway] 本次会话累计预估成本: ${total:.6f}")
 
 
 # ── 异常定义 ────────────────────────────────────────────────────

@@ -26,6 +26,9 @@ logger = logging.getLogger("kgateway.api.routes")
 
 router = APIRouter(prefix="/api/v1/gateway", tags=["streaming"])
 
+# ── 双路竞速常量 ────────────────────────────────────────────────
+_HEARTBEAT_INTERVAL_S: float = 0.2  # 200ms 心跳检测间隔
+
 # ── 模块级单例 ──────────────────────────────────────────────────
 _model_router: ModelRouter | None = None
 _bm25_retriever: SparseRetriever | None = None
@@ -152,6 +155,90 @@ async def _simulate_llm_tokens(
         await asyncio.sleep(delay)
 
 
+# ── 双路竞速守护机制 (Dual-Race Heartbeat Guardian) ─────────────
+
+async def _heartbeat_disconnect_monitor(
+    http_request: Request,
+    stop_event: asyncio.Event,
+) -> None:
+    """高频心跳检测客户端存活状态。
+
+    每 200ms 轮询一次 ``http_request.is_disconnected()``，
+    一旦检测到客户端离线，立即设置 ``stop_event`` 通知主协程终止。
+    """
+    while not stop_event.is_set():
+        try:
+            if await http_request.is_disconnected():
+                logger.warning("心跳检测: 客户端已断开，触发竞速终止")
+                stop_event.set()
+                return
+        except Exception:
+            # ASGI 连接已销毁，视为断开
+            stop_event.set()
+            return
+        await asyncio.sleep(_HEARTBEAT_INTERVAL_S)
+
+
+async def _race_with_heartbeat(
+    http_request: Request,
+    awaitable,
+):
+    """用 ``asyncio.wait(FIRST_COMPLETED)`` 将业务协程与心跳检测竞速。
+
+    - **心跳赢** → 客户端已断开，立即取消业务协程并抛出 ``ClientDisconnectedError``
+    - **业务赢** → 正常返回业务结果
+
+    通过 ``asyncio.shield`` 保护心跳 task 不被外部 cancel 泄漏。
+    """
+    stop_event = asyncio.Event()
+
+    heartbeat_task = asyncio.create_task(
+        _heartbeat_disconnect_monitor(http_request, stop_event)
+    )
+    # shield 防止外层 cancel 把心跳 task 也杀掉 → 避免 Task 泄漏
+    shielded_heartbeat = asyncio.shield(heartbeat_task)
+
+    work_task = asyncio.create_task(awaitable)
+
+    try:
+        done, pending = await asyncio.wait(
+            {work_task, shielded_heartbeat},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+
+        if shielded_heartbeat in done:
+            # 心跳先返回 → 客户端已断开
+            work_task.cancel()
+            try:
+                await work_task
+            except asyncio.CancelledError:
+                pass
+            raise ClientDisconnectedError("客户端已断开，上游计费已终止")
+
+        # 业务先完成 → 正常路径
+        shielded_heartbeat.cancel()
+        try:
+            await shielded_heartbeat
+        except asyncio.CancelledError:
+            pass
+        return work_task.result()
+
+    except ClientDisconnectedError:
+        raise
+    except Exception:
+        # 业务异常也要清理心跳
+        shielded_heartbeat.cancel()
+        try:
+            await shielded_heartbeat
+        except asyncio.CancelledError:
+            pass
+        raise
+
+
+class ClientDisconnectedError(Exception):
+    """客户端在模型思考期间断开连接。"""
+
+
 # ── 核心流式生成器（缓存 → 熔断 → Agent 全链路）────────────────
 
 async def event_generator(
@@ -212,17 +299,64 @@ async def event_generator(
         cache_hit = True
         trace_ctx.cache_hit = True
         trace_ctx.model_used = model_name
-        print(f"\n⚡ [Cache] 语义缓存命中! tenant={request.tenant_id}")
+        logger.info("语义缓存命中: tenant=%s", request.tenant_id)
         yield _sse_encode({"status": "Cache hit!", "model": model_name, "cache_hit": True, "trace_id": trace_ctx.trace_id})
         t0 = time.perf_counter()
         collected_text = ""
+
+        # 缓存命中路径同样使用双路竞速守护
+        _SENTINEL_CACHE = object()
+        cache_queue: asyncio.Queue = asyncio.Queue()
+
+        async def _cache_token_producer():
+            try:
+                async for chunk in _simulate_llm_tokens(cached_answer):
+                    await cache_queue.put(chunk)
+            finally:
+                await cache_queue.put(_SENTINEL_CACHE)
+
         try:
-            async for chunk in _simulate_llm_tokens(cached_answer):
-                if await http_request.is_disconnected(): return
-                collected_text += chunk
-                yield _sse_encode({"text": chunk})
+            producer = asyncio.create_task(_cache_token_producer())
+            stop_evt = asyncio.Event()
+            hb_task = asyncio.create_task(
+                _heartbeat_disconnect_monitor(http_request, stop_evt)
+            )
+            shielded_hb = asyncio.shield(hb_task)
+            try:
+                while True:
+                    get_task = asyncio.create_task(cache_queue.get())
+                    done, _ = await asyncio.wait(
+                        {get_task, shielded_hb},
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    if shielded_hb in done:
+                        get_task.cancel()
+                        try:
+                            await get_task
+                        except asyncio.CancelledError:
+                            pass
+                        producer.cancel()
+                        try:
+                            await producer
+                        except asyncio.CancelledError:
+                            pass
+                        while not cache_queue.empty():
+                            cache_queue.get_nowait()
+                        return
+                    chunk = get_task.result()
+                    if chunk is _SENTINEL_CACHE:
+                        break
+                    collected_text += chunk
+                    yield _sse_encode({"text": chunk})
+            finally:
+                shielded_hb.cancel()
+                try:
+                    await shielded_hb
+                except asyncio.CancelledError:
+                    pass
         except asyncio.CancelledError:
             return
+
         trace_ctx.ttft_ms = (time.perf_counter() - t0) * 1000
         trace_result = await observer.end_trace(trace_ctx)
         yield _sse_encode({"status": "metadata", "routing_decision": model_name, "cache_hit": True, "trace_id": trace_ctx.trace_id, "session_id": request.session_id})
@@ -230,7 +364,7 @@ async def event_generator(
         return
 
     # ════════════════════════════════════════════════════════════
-    # Phase 2: Agent Runtime
+    # Phase 2: Agent Runtime (双路竞速守护)
     # ════════════════════════════════════════════════════════════
     yield _sse_encode({"status": f"Processing via {model_name}...", "model": model_name, "cache_hit": False, "trace_id": trace_ctx.trace_id, "session_id": request.session_id})
     state = AgentState(request=request, history=[], steps=[], next_node="planner_node", final_answer="")
@@ -240,9 +374,20 @@ async def event_generator(
     try:
         if _circuit_breaker is not None:
             async with _circuit_breaker:
-                state = await _agent_runtime.execute_graph(state)
+                state = await _race_with_heartbeat(
+                    http_request,
+                    _agent_runtime.execute_graph(state),
+                )
         else:
-            state = await _agent_runtime.execute_graph(state)
+            state = await _race_with_heartbeat(
+                http_request,
+                _agent_runtime.execute_graph(state),
+            )
+    except ClientDisconnectedError:
+        observer.finish_span(trace_ctx, "agent_runtime", status="client_disconnected")
+        logger.warning("Agent Runtime 期间客户端断开，终止执行: tenant=%s", request.tenant_id)
+        await observer.end_trace(trace_ctx)
+        return
     except CircuitBreakerOpenError as exc:
         observer.finish_span(trace_ctx, "agent_runtime", status="circuit_breaker_blocked")
         degradation = f"系统暂时不可用（{exc}），请稍后重试。"
@@ -262,21 +407,78 @@ async def event_generator(
     observer.finish_span(trace_ctx, "agent_runtime", iterations=state.iteration, steps=len(state.steps))
 
     # ════════════════════════════════════════════════════════════
-    # Phase 3: 流式推送 + 缓存写入
+    # Phase 3: 流式推送 + 缓存写入 (双路竞速守护)
     # ════════════════════════════════════════════════════════════
     answer = state.final_answer or "抱歉，Agent 未能生成有效回答。"
     t0 = time.perf_counter()
     collected_text = ""
     yield _sse_encode({"status": f"Generating via {model_name}...", "agent_iterations": state.iteration, "trace_id": trace_ctx.trace_id})
+
+    # ── Queue 桥接: producer 从 async generator 读 token → queue ──
+    _SENTINEL = object()
+    token_queue: asyncio.Queue = asyncio.Queue()
+
+    async def _token_producer():
+        """从 LLM async generator 逐 token 读取并推入队列。"""
+        try:
+            async for chunk in _simulate_llm_tokens(answer):
+                await token_queue.put(chunk)
+        finally:
+            await token_queue.put(_SENTINEL)  # 通知 consumer 流结束
+
     try:
-        async for chunk in _simulate_llm_tokens(answer):
-            if await http_request.is_disconnected():
-                print("【警告】监测到客户端断开，已强行终止上游 Token 计费")
-                return
-            collected_text += chunk
-            yield _sse_encode({"text": chunk})
-            if not trace_ctx.ttft_ms:
-                trace_ctx.ttft_ms = (time.perf_counter() - t0) * 1000
+        producer_task = asyncio.create_task(_token_producer())
+        stop_event = asyncio.Event()
+        heartbeat_task = asyncio.create_task(
+            _heartbeat_disconnect_monitor(http_request, stop_event)
+        )
+        shielded_heartbeat = asyncio.shield(heartbeat_task)
+
+        try:
+            while True:
+                # 每次从 queue 取一个 token，同时与心跳竞速
+                get_task = asyncio.create_task(token_queue.get())
+                done, _ = await asyncio.wait(
+                    {get_task, shielded_heartbeat},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+
+                if shielded_heartbeat in done:
+                    # 客户端断开 → 清理 producer + 排空 queue
+                    get_task.cancel()
+                    try:
+                        await get_task
+                    except asyncio.CancelledError:
+                        pass
+                    producer_task.cancel()
+                    try:
+                        await producer_task
+                    except asyncio.CancelledError:
+                        pass
+                    # 排空 queue 防止 producer 阻塞
+                    while not token_queue.empty():
+                        token_queue.get_nowait()
+                    logger.warning(
+                        "流式推送期间客户端断开，已终止上游 Token 计费: tenant=%s",
+                        request.tenant_id,
+                    )
+                    return
+
+                # token 正常产出
+                chunk = get_task.result()
+                if chunk is _SENTINEL:
+                    break  # 流正常结束
+                collected_text += chunk
+                yield _sse_encode({"text": chunk})
+                if not trace_ctx.ttft_ms:
+                    trace_ctx.ttft_ms = (time.perf_counter() - t0) * 1000
+        finally:
+            shielded_heartbeat.cancel()
+            try:
+                await shielded_heartbeat
+            except asyncio.CancelledError:
+                pass
+
     except asyncio.CancelledError:
         return
     except Exception as exc:

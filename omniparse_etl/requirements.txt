@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+celery[redis]
+redis
+minio
+unstructured[pdf]
+qdrant-client
+sentence-transformers
+langchain-text-splitters
+requests
+numpy

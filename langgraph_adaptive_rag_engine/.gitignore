@@ -1,0 +1,39 @@
+# ── Python ──────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# ── Virtual environments ────────────────────────────────
+.venv/
+venv/
+ENV/
+
+# ── Environment secrets ─────────────────────────────────
+.env
+
+# ── IDE / Editor ────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ── Testing / Coverage ──────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# ── OS artifacts ────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Claude Code workspace ──────────────────────────────
+.claude/
+
+# ── Logs & build artifacts ─────────────────────────────
+*.log
+dist/
+build/
+*.egg-info/
