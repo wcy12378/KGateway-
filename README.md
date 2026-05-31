@@ -1,6 +1,6 @@
-# KGateway 🚀
+# KGateway
 
-**企业级混合多模态 Agent 知识库网关 —— 统一 LLM 路由、语义控本与多租户安全沙箱**
+**企业级 AI 基础设施平台 —— 统一 LLM 网关、多模态文档解析与自适应 RAG 引擎**
 
 ```
 ██╗  ██╗██████╗       ██╗  ██╗ █████╗ ██████╗ ███████╗██████╗  ██████╗ ███████╗
@@ -11,427 +11,439 @@
 ╚═╝  ╚═╝╚═════╝       ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ ╚══════╝╚═════╝  ╚═════╝ ╚══════╝
 ```
 
-**Unified LLM Gateway with Semantic Cost Control & Multi-Tenant Security Sandbox**
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Docker](https://img.shields.io/badge/Docker-24.0-blue.svg?logo=docker)](https://www.docker.com/)
 
 ---
 
-## 🎯 Pain Points Solved
+## 🎯 项目概览
 
-| Dimension | 🧸 Toy Projects (LangChain/RAG Wrapper) | 🏭 KGateway (Production-Grade) |
-|-----------|----------------------------------------|-------------------------------|
-| **Data Isolation** | Post-filtering → Recall collapse risk | **Bitmap Pre-filtering** → HNSW index-level hard isolation |
-| **Token Billing** | Blind API calls → Uncontrollable costs | **Vector Semantic Cache** → 5ms interception, 42.6% cost reduction |
-| **Traffic Avalanche** | Timeout crashes → Cascading failures | **Tri-State Circuit Breaker** → Auto-recovery with exponential backoff |
-| **Client Offline** | Resource leaks → Token theft | **Dual-Race Guardian** → 200ms heartbeat, instant connection kill |
-| **Agent Orchestration** | Black-box chains → Infinite loops | **FSM Runtime** → Deterministic state machine with iteration sandbox |
-| **Observability** | No tracing → Debugging nightmare | **LangFuse + Prometheus** → Full request lifecycle observability |
+KGateway 是一个**生产级 AI 基础设施平台**，由四个紧密协作的子系统组成，覆盖从文档解析、向量入库到智能检索与 LLM 网关的完整链路：
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        KGateway 生态全景                                 │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  📄 OmniParse ETL        🧠 Adaptive RAG Engine     🚀 KGateway        │
+│  ┌──────────────┐        ┌──────────────────┐      ┌──────────────────┐ │
+│  │ PDF/图片解析  │───────▶│  自适应检索增强   │─────▶│  统一 LLM 网关   │ │
+│  │ 表格识别      │        │  幻觉自纠循环     │      │  语义缓存+熔断   │ │
+│  │ 智能切分      │        │  降级到 Web 搜索  │      │  多租户隔离      │ │
+│  └──────────────┘        └──────────────────┘      └──────────────────┘ │
+│         │                        │                         │            │
+│         ▼                        ▼                         ▼            │
+│  ┌──────────────┐        ┌──────────────────┐      ┌──────────────────┐ │
+│  │   MinIO      │        │   Qdrant         │      │   Redis VSS      │ │
+│  │   (原始文件)  │        │   (向量存储)      │      │   (语义缓存)     │ │
+│  └──────────────┘        └──────────────────┘      └──────────────────┘ │
+│                                                                         │
+│  🤖 CC-Connect Bridge                                                      │
+│  ┌──────────────────────────────────────────────────────────────────┐    │
+│  │  12+ AI Agent × 12+ Chat Platform — 统一 AI 编码代理桥接层       │    │
+│  └──────────────────────────────────────────────────────────────────┘    │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### 四大子系统
+
+| 子系统 | 语言 | 定位 | 端口 |
+|--------|------|------|------|
+| **[KGateway](ai_gateway/)** | Python | 企业级 LLM 网关 — 统一路由、语义缓存、成本管控 | `8000` |
+| **[OmniParse ETL](omniparse_etl/)** | Python | 多模态文档解析与向量入库流水线 | `8001` |
+| **[LangGraph Adaptive RAG](langgraph_adaptive_rag_engine/)** | Python | 自适应检索增强生成 — 幻觉自纠与查询重写 | — |
+| **[CC-Connect Bridge](cc-connect-bridge/)** | Go | AI 编码代理 × 聊天平台桥接（Claude Code, Codex 等） | — |
 
 ---
 
-## 🏗️ System Architecture
+## 💎 核心能力
+
+### 🚀 KGateway — 统一 LLM 网关
 
 ```
-                            ┌─────────────────────────────────────────────┐
-                            │           KGateway Production Architecture │
-                            └─────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│                                    CLIENT LAYER                                         │
-│                                                                                         │
-│   ┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐          │
-│   │   Web App    │    │   Mobile     │    │   IoT        │    │   Third-Party│          │
-│   └──────┬───────┘    └──────┬───────┘    └──────┬───────┘    └──────┬───────┘          │
-│          └───────────────────┼───────────────────┼───────────────────┘                  │
-│                              │                   │                                      │
-└──────────────────────────────┼───────────────────┼──────────────────────────────────────┘
-                               │                   │
-                               ▼                   ▼
-┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│                                  GATEWAY ENGINE (FastAPI)                                │
-│                                                                                         │
-│   ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐              │
-│   │   Request   │───▶│  Circuit    │───▶│  Rate       │───▶│  Tenant     │              │
-│   │   Validator │    │  Breaker    │    │  Limiter    │    │  Resolver   │              │
-│   └─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘              │
-│                                                                                         │
-└─────────────────────────────────────────┬───────────────────────────────────────────────┘
-                                          │
-                                          ▼
-┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│                                SEMANTIC COST CONTROL LAYER                               │
-│                                                                                         │
-│   ┌─────────────────────────────────────────────────────────────────────────────┐       │
-│   │                     Redis Vector Semantic Cache (VSS)                        │       │
-│   │                                                                              │       │
-│   │   ┌──────────────┐    ┌──────────────┐    ┌──────────────┐                  │       │
-│   │   │   Query      │───▶│   HNSW       │───▶│   Cosine     │                  │       │
-│   │   │   Encoder    │    │   Search     │    │   Similarity │                  │       │
-│   │   └──────────────┘    └──────────────┘    └──────────────┘                  │       │
-│   │                                                                              │       │
-│   │   Threshold: > 0.96 → Cache Hit (5ms) │ < 0.96 → Forward to Model Router    │       │
-│   └─────────────────────────────────────────────────────────────────────────────┘       │
-│                                                                                         │
-└─────────────────────────────────────────┬───────────────────────────────────────────────┘
-                                          │
-                                          ▼
-┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│                                   MODEL ROUTING LAYER                                   │
-│                                                                                         │
-│   ┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐          │
-│   │   Load       │───▶│   Fallback   │───▶│   Provider   │───▶│   Model      │          │
-│   │   Balancer   │    │   Chain      │    │   Selector   │    │   Dispatcher │          │
-│   └──────────────┘    └──────────────┘    └──────────────┘    └──────────────┘          │
-│                                                                                         │
-└─────────────────────────────────────────┬───────────────────────────────────────────────┘
-                                          │
-                                          ▼
-┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│                              AGENT RUNTIME (FSM-Based)                                   │
-│                                                                                         │
-│   ┌─────────────────────────────────────────────────────────────────────────────┐       │
-│   │                        Deterministic State Machine                          │       │
-│   │                                                                              │       │
-│   │   ┌──────────┐      ┌──────────┐      ┌──────────┐      ┌──────────┐       │       │
-│   │   │ PLANNER  │─────▶│ TOOL     │─────▶│ EXECUTOR │─────▶│ FALLBACK │       │       │
-│   │   │          │      │ SELECTOR │      │          │      │          │       │       │
-│   │   └──────────┘      └──────────┘      └──────────┘      └──────────┘       │       │
-│   │                                                                              │       │
-│   │   Max Iterations: 4 (Sandbox) │ Deadlock Prevention: Enabled                │       │
-│   └─────────────────────────────────────────────────────────────────────────────┘       │
-│                                                                                         │
-└─────────────────────────────────────────┬───────────────────────────────────────────────┘
-                                          │
-                                          ▼
-┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│                             2-STAGE RETRIEVAL PIPELINE                                  │
-│                                                                                         │
-│   ┌─────────────────────────────────────────────────────────────────────────────┐       │
-│   │                         Stage 1: Hybrid Recall                              │       │
-│   │                                                                              │       │
-│   │   ┌──────────────┐                    ┌──────────────┐                      │       │
-│   │   │   Qdrant     │                    │   BM25       │                      │       │
-│   │   │   (Dense)    │                    │   (Sparse)   │                      │       │
-│   │   └──────┬───────┘                    └──────┬───────┘                      │       │
-│   │          │                                   │                              │       │
-│   │          └───────────────┬───────────────────┘                              │       │
-│   │                          │                                                  │       │
-│   │                          ▼                                                  │       │
-│   │               ┌──────────────────┐                                         │       │
-│   │               │  RRF Fusion      │                                         │       │
-│   │               │  (k=60)          │                                         │       │
-│   │               └────────┬─────────┘                                         │       │
-│   └────────────────────────┼────────────────────────────────────────────────────┘       │
-│                            │                                                            │
-│                            ▼                                                            │
-│   ┌─────────────────────────────────────────────────────────────────────────────┐       │
-│   │                         Stage 2: Cross-Encoder Rerank                       │       │
-│   │                                                                              │       │
-│   │   ┌──────────────┐    ┌──────────────┐    ┌──────────────┐                  │       │
-│   │   │   BGE        │───▶│   Cross-     │───▶│   Score      │                  │       │
-│   │   │   Reranker   │    │   Attention  │    │   Ranking    │                  │       │
-│   │   └──────────────┘    └──────────────┘    └──────────────┘                  │       │
-│   │                                                                              │       │
-│   │   Execution: asyncio.to_thread (Non-blocking)                               │       │
-│   └─────────────────────────────────────────────────────────────────────────────┘       │
-│                                                                                         │
-└─────────────────────────────────────────┬───────────────────────────────────────────────┘
-                                          │
-                                          ▼
-┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│                                  SSE STREAM OUTPUT                                      │
-│                                                                                         │
-│   ┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐          │
-│   │   Dual-Race  │───▶│   Status     │───▶│   Text       │───▶│   Client     │          │
-│   │   Guardian   │    │   Stream     │    │   Stream     │    │   Heartbeat  │          │
-│   └──────────────┘    └──────────────┘    └──────────────┘    └──────────────┘          │
-│                                                                                         │
-│   asyncio.wait(FIRST_COMPLETED) │ 200ms Timeout │ Instant Kill on Disconnect            │
-│                                                                                         │
-└─────────────────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                    REQUEST FLOW                                  │
+│                                                                  │
+│  Client ──▶ Circuit Breaker ──▶ Semantic Cache ──▶ Model Router │
+│                                (Redis VSS)        (qwen3/deepseek│
+│                                     │             /claude)      │
+│                              ┌──────┴──────┐                    │
+│                              │  Cache Hit  │  Cache Miss        │
+│                              │   (5ms)     │  ──▶ FSM Agent     │
+│                              └─────────────┘      Runtime       │
+│                                                        │        │
+│                                              ┌─────────┴──────┐ │
+│                                              │ Hybrid RAG     │ │
+│                                              │ Dense + Sparse  │ │
+│                                              │ + RRF + Rerank  │ │
+│                                              └────────────────┘ │
+│                                                        │        │
+│                                              ┌─────────┴──────┐ │
+│                                              │ SSE Streaming  │ │
+│                                              └────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
 ```
+
+**核心特性：**
+
+| 特性 | 描述 | 指标 |
+|------|------|------|
+| **语义缓存** | Redis Vector Similarity Search，HNSW 余弦相似度 > 0.96 命中 | 缓存命中率 42.6%，延迟 5ms |
+| **三态熔断器** | CLOSED → OPEN → HALF_OPEN 自动恢复，指数退避 | 失败阈值 5 次，恢复超时 60s |
+| **动态模型路由** | 按查询复杂度路由到 qwen3-8b / deepseek-r1 / claude-3.5-sonnet | 实时 USD 成本估算 |
+| **FSM Agent Runtime** | 确定性有限状态机 (Planner→Executor→Planner)，最大 4 次迭代沙箱 | 死锁防护 + 超时保护 |
+| **2-Stage RAG Pipeline** | Qdrant (Dense) + BM25 (Sparse) → RRF Fusion (k=60) → BGE CrossEncoder Rerank | 非阻塞 `asyncio.to_thread` |
+| **多租户隔离** | Qdrant HNSW 索引级 Bitmap 预过滤，`tenant_id` + `department` 字段条件 | 零泄露保障 |
+| **全链路可观测性** | LangFuse 分布式追踪 + Prometheus 指标 + 本地延迟桶聚合 | 实时 Metrics 端点 |
+
+### 📄 OmniParse ETL — 多模态文档解析
+
+**4 阶段 ETL Pipeline：**
+
+```
+Upload (FastAPI) ──▶ Parse (Unstructured PDF) ──▶ Chunk (EnterpriseChunker) ──▶ Ingest (Qdrant)
+      │                      │                         │                         │
+  MinIO 存储           跨页表格还原              格式感知切分              BGE 向量化入库
+  Celery 异步          VLM 图片描述              表格永不碎片化            租户元数据索引
+```
+
+- **多模态 PDF 解析**：文本、表格（HTML 格式，永不切分）、图片（VLM 语义描述）
+- **EnterpriseChunker**：滑动窗口切分（800 字符，150 重叠），表格整体保留
+- **分布式 Worker**：Celery + Redis Broker，支持水平扩缩容
+- **向量入库**：`BAAI/bge-large-zh-v1.5` (1024 维) + Qdrant 租户索引
+
+### 🧠 LangGraph Adaptive RAG — 自适应检索增强生成
+
+```mermaid
+flowchart TD
+    START((▶ START)) --> ROUTE{{"🧭 Router"}}
+    ROUTE -- "noise" --> NOISE["💬 Noise Reply"] --> END_NOISE((◼ END))
+    ROUTE -- "vector_store" --> RETRIEVE["📚 Retrieve"]
+    ROUTE -- "web_search" --> WEB_SEARCH["🌐 Web Search"]
+    RETRIEVE --> GRADE{{"📊 Grade Documents"}}
+    GRADE -- "relevant" --> GENERATE["✍️ Generate"]
+    GRADE -- "not relevant & count < 2" --> WEB_SEARCH
+    WEB_SEARCH --> GENERATE
+    GENERATE --> HALLUCINATION{{"🔍 Hallucination Grader"}}
+    HALLUCINATION -- "SUPPORTED ✓" --> END_OK((◼ END))
+    HALLUCINATION -- "NOT_SUPPORTED ✗ & count < 2" --> REWRITE["🔄 Rewrite Query"]
+    REWRITE --> RETRIEVE
+```
+
+- **DCG 有向有环图**：幻觉反射循环 + 查询重写 → 自动重检索 → 重新生成
+- **8 个类型化图节点** + **3 个条件路由边**，`search_count < 2` 电路断路器保证终止
+- **异步并发文档评分**：`asyncio.gather` 并行相关性打分
+- **优雅降级**：Qdrant 不可用时自动回退到 Web 搜索
+- **Mock LLM 层**：无需 API Key 即可端到端离线测试
+
+### 🤖 CC-Connect Bridge — AI 代理桥接
+
+- **12+ AI Agent**：Claude Code, Codex, Cursor, Gemini CLI, Kimi CLI, Qoder, OpenCode, iFlow, Pi, Devin, ACP, Tmux
+- **12+ Chat Platform**：飞书, Telegram, Discord, Slack, 钉钉, 企业微信, 微信, 微博, QQ, QQ Bot, LINE, WPS 写作
+- **Web 管理面板**：嵌入式管理后台，无需额外依赖
+- **会话管理**：`/new`, `/list`, `/switch`，空闲自动轮换
 
 ---
 
-## 💎 Tech Stack
-
-### Gateway Engine
+## 🏗️ 技术栈
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    ASYNC HTTP PROCESSING                        │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│   ⚡ FastAPI              High-performance async web framework   │
-│   🔄 Uvicorn              ASGI server with hot reload            │
-│   📝 Pydantic v2          Data validation & settings management  │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Advanced RAG Pipeline
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                   HYBRID RETRIEVAL ENGINE                       │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│   🎯 Qdrant              Vector DB with HNSW + Pre-filtering    │
-│   🔍 BM25                Sparse lexical retrieval                │
-│   🔗 RRF Fusion          Reciprocal Rank Fusion (k=60)          │
-│   🎨 BGE-Reranker        Cross-Encoder precision ranking         │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Middleware & High Availability
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    RESILIENCE & CACHING                         │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│   💾 RedisVL              Vector Semantic Cache (VSS)            │
-│   ⚡ Circuit Breaker      Tri-State Auto-Recovery                │
-│   🔒 Multi-Tenant         Bitmap Pre-filtering Isolation         │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Observability & Testing
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                 MONITORING & LOAD TESTING                       │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│   📊 LangFuse            Distributed tracing & cost tracking     │
-│   📈 Prometheus          Metrics export & alerting               │
-│   🧪 Locust              Distributed load testing framework     │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Core Dependencies
-
-```txt
-# Gateway Core
-fastapi==0.115.*
-uvicorn[standard]==0.34.*
-pydantic==2.10.*
-
-# Vector & Search
-qdrant-client==1.13.*
-redisvl==0.4.*
-
-# AI/ML
-sentence-transformers==4.1.*
-transformers==4.48.*
-
-# Observability
-langfuse==2.60.*
-prometheus-client==0.21.*
-
-# Resilience
-pybreaker==1.2.*
-tenacity==9.1.*
+┌─────────────────────────────────────────────────────────────────────┐
+│                        TECHNOLOGY STACK                             │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│   🐍 Python 3.11+                                                   │
+│   ────────────────                                                   │
+│   • FastAPI + Uvicorn         高性能异步 Web 框架                     │
+│   • Pydantic v2               数据校验与 Settings 管理                │
+│   • sentence-transformers     BGE 向量化 + CrossEncoder 精排         │
+│   • rank-bm25 + jieba         BM25 稀疏检索 (中文分词)               │
+│                                                                      │
+│   🗄️ 存储层                                                         │
+│   ────────────────                                                   │
+│   • Qdrant                   向量数据库 (HNSW + Bitmap 预过滤)       │
+│   • Redis 7                  语义缓存 (VSS) + 消息队列               │
+│   • Neo4j 5                  知识图谱                                 │
+│   • MinIO                    S3 兼容对象存储                          │
+│                                                                      │
+│   📊 可观测性                                                        │
+│   ────────────────                                                   │
+│   • LangFuse                 分布式追踪                               │
+│   • Prometheus               指标导出与告警                           │
+│                                                                      │
+│   🐳 基础设施                                                        │
+│   ────────────────                                                   │
+│   • Docker Compose           7 服务一键编排                           │
+│   • Celery                   分布式任务队列                           │
+│   • Locust                   负载测试框架                             │
+│                                                                      │
+│   🔧 CC-Connect Bridge                                                │
+│   ────────────────                                                   │
+│   • Go 1.25                  高性能桥接服务                           │
+│   • BubbleTea + Lip Gloss    TUI 组件                                 │
+│   • WebSocket                实时通信                                 │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 🚀 Quick Start
+## 🚀 快速开始
 
-### Prerequisites
+### 环境要求
+
+- **Docker & Docker Compose**（推荐）
+- Python 3.11+（本地开发）
+- Go 1.25+（CC-Connect Bridge）
+
+### 一键部署（Docker Compose）
 
 ```bash
-# Required
-Python 3.11+
-Docker & Docker Compose
-Redis (or use Docker)
-Qdrant (or use Docker)
-```
+# 克隆仓库
+git clone git@github.com:wcy12378/KGateway-.git
+cd KGateway-
 
-### Option 1: Docker Compose (Recommended)
-
-```bash
-# Clone repository
-git clone https://github.com/your-username/ai-gateway.git
-cd ai-gateway
-
-# Start all infrastructure
+# 启动全部 7 个服务
 docker-compose up -d
 
-# Verify services
+# 查看服务状态
 docker-compose ps
+```
 
-# Access Gateway
+**启动的服务：**
+
+| 服务 | 端口 | 说明 |
+|------|------|------|
+| `kgw-redis` | `6379` | 语义缓存 + 消息队列 |
+| `kgw-qdrant` | `6333` / `6334` | 向量数据库 |
+| `kgw-neo4j` | `7474` / `7687` | 知识图谱 |
+| `kgw-minio` | `9000` / `9001` | 对象存储 |
+| `kgw-gateway` | `8000` | KGateway 网关 |
+| `kgw-etl-api` | `8001` | ETL 上传接口 |
+| `kgw-etl-worker` | — | Celery ETL Worker |
+
+### 验证服务
+
+```bash
+# 健康检查
 curl http://localhost:8000/health
-```
 
-### Option 2: Local Development
+# 查看实时指标
+curl http://localhost:8000/api/v1/gateway/metrics
 
-```bash
-# 1. Clone and setup
-git clone https://github.com/your-username/ai-gateway.git
-cd ai-gateway
-
-# 2. Create virtual environment
-python -m venv .venv
-source .venv/bin/activate  # Linux/Mac
-# or
-.venv\Scripts\activate     # Windows
-
-# 3. Install dependencies
-pip install -r requirements.txt
-
-# 4. Configure environment
-export QDRANT_HOST=localhost
-export QDRANT_PORT=6333
-export REDIS_HOST=localhost
-export REDIS_PORT=6379
-export LANGFUSE_PUBLIC_KEY=your_public_key
-export LANGFUSE_SECRET_KEY=your_secret_key
-
-# 5. Start Gateway
-python -m src.main
-```
-
-### Option 3: Environment Variables Override
-
-```bash
-# Core Settings
-export KGW_HOST=0.0.0.0
-export KGW_PORT=8000
-export KGW_WORKERS=4
-export KGW_LOG_LEVEL=info
-
-# Qdrant Configuration
-export QDRANT_HOST=localhost
-export QDRANT_PORT=6333
-export QDRANT_COLLECTION=knowledge_base
-
-# Redis Configuration
-export REDIS_HOST=localhost
-export REDIS_PORT=6379
-export REDIS_DB=0
-
-# Semantic Cache
-export CACHE_SIMILARITY_THRESHOLD=0.96
-export CACHE_TTL_SECONDS=3600
-
-# Circuit Breaker
-export CB_FAIL_MAX=5
-export CB_RESET_TIMEOUT=60
-
-# LangFuse Observability
-export LANGFUSE_HOST=https://cloud.langfuse.com
-export LANGFUSE_PUBLIC_KEY=pk-lf-...
-export LANGFUSE_SECRET_KEY=sk-lf-...
-```
-
-### Access Swagger UI
-
-```bash
-# After starting the gateway
+# 打开 Swagger 文档
 open http://localhost:8000/docs
-
-# Or use curl
-curl http://localhost:8000/docs
 ```
 
 ---
 
-## 📁 Project Structure
+## 📡 API 接口
 
-```
-ai_gateway/
-├── src/
-│   ├── agents/                    # Agent Runtime
-│   │   ├── runtime.py             # FSM-based deterministic agent
-│   │   └── __init__.py
-│   ├── api/                       # HTTP Endpoints
-│   │   ├── routes.py              # FastAPI route definitions
-│   │   └── __init__.py
-│   ├── core/                      # Core Business Logic
-│   │   ├── cache.py               # Redis Vector Semantic Cache
-│   │   ├── fusion.py              # RRF Rank Fusion
-│   │   ├── observability.py       # LangFuse/Prometheus integration
-│   │   ├── protection.py          # Circuit Breaker & Rate Limiter
-│   │   ├── reranker.py            # BGE-Reranker integration
-│   │   ├── router.py              # Model routing logic
-│   │   ├── schemas.py             # Pydantic models
-│   │   └── __init__.py
-│   ├── db/                        # Database Clients
-│   │   ├── bm25_client.py         # BM25 sparse retrieval
-│   │   ├── neo4j_client.py        # Graph database
-│   │   ├── qdrant_client.py       # Vector database
-│   │   └── __init__.py
-│   ├── config.py                  # Configuration management
-│   ├── main.py                    # Application entry point
-│   └── __init__.py
-├── tests/                         # Test suite
-├── docker-compose.yml             # Container orchestration
-├── Dockerfile                     # Container build
-├── requirements.txt               # Python dependencies
-└── README.md                      # This file
+### KGateway 网关 (port 8000)
+
+**POST** `/api/v1/gateway/stream` — SSE 流式网关（主接口）
+
+```json
+{
+  "user_id": "user_001",
+  "tenant_id": "tenant_acme",
+  "department": "legal",
+  "question": "请解释一下最新的劳动法修订内容",
+  "session_id": "550e8400-e29b-41d4-a716-446655440000",
+  "advanced_reasoning": false
+}
 ```
 
----
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `user_id` | string | ✅ | 用户标识 |
+| `tenant_id` | string | ✅ | 租户 ID（数据隔离） |
+| `department` | enum | ❌ | `legal` / `hr` / `engineering` / `finance` / `general` |
+| `question` | string | ✅ | 用户问题 |
+| `session_id` | uuid | ❌ | 会话 ID（自动生成） |
+| `advanced_reasoning` | bool | ❌ | 启用高级推理模型 |
 
-## 🔧 Configuration Reference
+**GET** `/health` — 健康检查
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `KGW_HOST` | `0.0.0.0` | Gateway bind address |
-| `KGW_PORT` | `8000` | Gateway port |
-| `KGW_WORKERS` | `4` | Uvicorn worker count |
-| `QDRANT_HOST` | `localhost` | Qdrant host |
-| `QDRANT_PORT` | `6333` | Qdrant port |
-| `REDIS_HOST` | `localhost` | Redis host |
-| `REDIS_PORT` | `6379` | Redis port |
-| `CACHE_SIMILARITY_THRESHOLD` | `0.96` | Semantic cache hit threshold |
-| `CB_FAIL_MAX` | `5` | Circuit breaker failure threshold |
-| `CB_RESET_TIMEOUT` | `60` | Circuit breaker reset timeout |
+**GET** `/api/v1/gateway/metrics` — 实时监控指标（JSON）
 
----
+**GET** `/docs` — Swagger UI 交互文档
 
-## 📊 Performance Benchmarks
+### OmniParse ETL (port 8001)
 
-| Metric | Target | Achieved |
-|--------|--------|----------|
-| Request Latency (p99) | < 500ms | 120ms |
-| Cache Hit Rate | > 40% | 42.6% |
-| Throughput (RPS) | > 1000 | 1,500+ |
-| Agent Iteration Safety | 100% | ✅ Max 4 iterations |
-| Multi-Tenant Isolation | Zero leaks | ✅ Bitmap pre-filtering |
-
----
-
-## 🧪 Load Testing
+**POST** `/api/v1/etl/upload` — 上传文档进行解析
 
 ```bash
-# Install Locust
-pip install locust
+curl -X POST "http://localhost:8001/api/v1/etl/upload" \
+  -H "Content-Type: multipart/form-data" \
+  -F "file=@document.pdf"
+```
 
-# Run distributed load test
-locust -f tests/load/locustfile.py \
+---
+
+## 📁 项目结构
+
+```
+KGateway-/
+├── docker-compose.yml            # 全栈 7 服务编排
+├── Dockerfile.gateway             # KGateway 容器构建
+├── Dockerfile.etl                 # ETL 容器构建
+│
+├── ai_gateway/                    # ── KGateway: LLM 网关 ──
+│   ├── src/
+│   │   ├── main.py                # FastAPI 入口 (port 8000)
+│   │   ├── config.py              # 环境变量配置
+│   │   ├── api/routes.py          # SSE 流式端点
+│   │   ├── agents/runtime.py      # FSM Agent 运行时
+│   │   ├── core/
+│   │   │   ├── cache.py           # Redis 向量语义缓存
+│   │   │   ├── fusion.py          # RRF 排序融合
+│   │   │   ├── reranker.py        # BGE CrossEncoder 精排
+│   │   │   ├── router.py          # 动态模型路由 + 成本估算
+│   │   │   ├── protection.py      # 三态熔断器
+│   │   │   ├── observability.py   # LangFuse + Prometheus
+│   │   │   └── schemas.py         # Pydantic 请求/响应模型
+│   │   └── db/
+│   │       ├── qdrant_client.py   # Qdrant 向量库 (多租户)
+│   │       ├── bm25_client.py     # BM25 稀疏检索
+│   │       └── neo4j_client.py    # Neo4j 图数据库
+│   ├── tests/
+│   │   ├── test_storage.py        # pytest 单元测试
+│   │   └── locustfile.py          # Locust 负载测试
+│   └── requirements.txt
+│
+├── omniparse_etl/                 # ── OmniParse ETL: 文档解析 ──
+│   ├── src/
+│   │   ├── main.py                # FastAPI 入口 (port 8001)
+│   │   ├── api/upload.py          # 文件上传端点
+│   │   ├── parsers/
+│   │   │   ├── pdf_parser.py      # 多模态 PDF 解析
+│   │   │   └── chunker.py         # EnterpriseChunker 格式感知切分
+│   │   ├── storage/minio_client.py
+│   │   └── worker/
+│   │       ├── tasks.py           # Celery ETL 任务
+│   │       └── ingestion.py       # Qdrant 向量化入库
+│   └── requirements.txt
+│
+├── langgraph_adaptive_rag_engine/ # ── Adaptive RAG: 自适应检索 ──
+│   ├── src/
+│   │   ├── main.py                # 入口 (运行 2 个 Demo Case)
+│   │   ├── graph.py               # 核心 LangGraph 状态图 (8 节点)
+│   │   ├── state.py               # Pydantic AgentState
+│   │   ├── chains/                # 路由、评分、幻觉检测链
+│   │   └── nodes/                 # 检索、评分、搜索、生成节点
+│   ├── test_sanity.py
+│   └── pyproject.toml
+│
+└── cc-connect-bridge/             # ── CC-Connect: AI 代理桥接 ──
+    ├── cmd/cc-connect/            # Go CLI 入口
+    ├── agent/                     # 12 个 Agent 适配器
+    ├── platform/                  # 12 个平台适配器
+    ├── web/                       # Web 管理面板
+    ├── tests/                     # 黑盒/端到端/集成测试
+    └── Makefile                   # 构建 + 选择性编译
+```
+
+---
+
+## ⚙️ 环境变量参考
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| **网关核心** | | |
+| `KGW_HOST` | `0.0.0.0` | 网关绑定地址 |
+| `KGW_PORT` | `8000` | 网关端口 |
+| `KGW_WORKERS` | `4` | Uvicorn Worker 数 |
+| `KGW_DEBUG` | `false` | 调试模式 |
+| **Qdrant** | | |
+| `QDRANT_URL` | `http://localhost:6333` | Qdrant 地址 |
+| `QDRANT_COLLECTION` | `kgateway_vectors` | 向量集合名 |
+| **Redis** | | |
+| `REDIS_URL` | `redis://localhost:6379` | Redis 连接 |
+| `REDIS_CACHE_TTL_HOURS` | `12` | 缓存 TTL |
+| `REDIS_CACHE_THRESHOLD` | `0.96` | 语义缓存相似度阈值 |
+| **Neo4j** | | |
+| `NEO4J_URI` | `bolt://localhost:7687` | Neo4j 连接 |
+| `NEO4J_USER` | `neo4j` | Neo4j 用户名 |
+| `NEO4J_PASSWORD` | — | Neo4j 密码 |
+| **熔断器** | | |
+| `CB_FAILURE_THRESHOLD` | `5` | 失败次数阈值 |
+| `CB_RECOVERY_TIMEOUT` | `60` | 恢复超时 (秒) |
+
+---
+
+## 📊 性能指标
+
+| 指标 | 目标 | 实际 |
+|------|------|------|
+| 请求延迟 (p99) | < 500ms | **120ms** |
+| 缓存命中率 | > 40% | **42.6%** |
+| 吞吐量 (RPS) | > 1,000 | **1,500+** |
+| Agent 迭代安全 | 100% | ✅ 最大 4 次迭代 |
+| 多租户隔离 | 零泄露 | ✅ Bitmap 预过滤 |
+
+---
+
+## 🧪 测试
+
+### KGateway 单元测试
+
+```bash
+cd ai_gateway
+pip install -r requirements.txt
+pytest tests/test_storage.py -v
+```
+
+### Locust 负载测试
+
+```bash
+cd ai_gateway
+locust -f tests/locustfile.py \
   --host=http://localhost:8000 \
   --users=100 \
   --spawn-rate=10 \
   --run-time=5m
 ```
 
+### LangGraph RAG 测试
+
+```bash
+cd langgraph_adaptive_rag_engine
+uv sync
+uv run pytest test_sanity.py -v
+```
+
+### CC-Connect Bridge 测试
+
+```bash
+cd cc-connect-bridge
+make test-fast        # 快速测试
+make test-full        # 完整测试
+make test-e2e         # 端到端测试
+```
+
 ---
 
-## 🤝 Contributing
+## 🤝 参与贡献
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+欢迎贡献代码、提交 Issue 或提出建议！
+
+1. Fork 本仓库
+2. 创建特性分支 (`git checkout -b feature/amazing-feature`)
+3. 提交更改 (`git commit -m 'feat: add amazing feature'`)
+4. 推送到分支 (`git push origin feature/amazing-feature`)
+5. 开启 Pull Request
 
 ---
 
-## 📄 License
+## 📄 许可证
 
-MIT License - see [LICENSE](LICENSE) for details.
+本项目采用 [MIT License](LICENSE) 开源协议。
 
 ---
 
-**Built with ❤️ for Enterprise AI Infrastructure**
+<p align="center">
+  <b>Built with ❤️ for Enterprise AI Infrastructure</b>
+</p>
