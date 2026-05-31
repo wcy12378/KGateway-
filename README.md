@@ -86,17 +86,20 @@ KGateway 是一个**生产级 AI 基础设施平台**，由四个紧密协作的
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-**核心特性：**
+**核心特性（含源码定位）：**
 
-| 特性 | 描述 | 指标 |
-|------|------|------|
-| **语义缓存** | Redis Vector Similarity Search，HNSW 余弦相似度 > 0.96 命中 | 缓存命中率 42.6%，延迟 5ms |
-| **三态熔断器** | CLOSED → OPEN → HALF_OPEN 自动恢复，指数退避 | 失败阈值 5 次，恢复超时 60s |
-| **动态模型路由** | 按查询复杂度路由到 qwen3-8b / deepseek-r1 / claude-3.5-sonnet | 实时 USD 成本估算 |
-| **FSM Agent Runtime** | 确定性有限状态机 (Planner→Executor→Planner)，最大 4 次迭代沙箱 | 死锁防护 + 超时保护 |
-| **2-Stage RAG Pipeline** | Qdrant (Dense) + BM25 (Sparse) → RRF Fusion (k=60) → BGE CrossEncoder Rerank | 非阻塞 `asyncio.to_thread` |
-| **多租户隔离** | Qdrant HNSW 索引级 Bitmap 预过滤，`tenant_id` + `department` 字段条件 | 零泄露保障 |
-| **全链路可观测性** | LangFuse 分布式追踪 + Prometheus 指标 + 本地延迟桶聚合 | 实时 Metrics 端点 |
+| 特性 | 描述 | 源码位置 |
+|------|------|----------|
+| **三态熔断器** | CLOSED → OPEN → HALF_OPEN 自修复，async context manager | `src/core/protection.py:50-120` |
+| **双路竞速守护** | `asyncio.wait(FIRST_COMPLETED)` 心跳 vs 业务竞速，200ms 检测断连 | `src/api/routes.py:160-240` |
+| **语义缓存** | Redis VSS + HNSW 余弦相似度 > 0.96 毫秒级拦截 | `src/core/cache.py:30-90` |
+| **动态模型路由** | 按查询复杂度路由 + Token 成本实时估算 | `src/core/router.py:87-106` |
+| **FSM Agent Runtime** | 确定性状态机 Planner→Executor，4 次迭代沙箱 | `src/agents/runtime.py:151-228` |
+| **RRF 融合** | Dense + Sparse 双路召回 → Reciprocal Rank Fusion (k=60) | `src/core/fusion.py:10-50` |
+| **BGE CrossEncoder 精排** | `asyncio.to_thread` 非阻塞卸载 CPU 推理 | `src/core/reranker.py:40-80` |
+| **BM25 稀疏检索** | 2-gram 中文分词 + 多租户硬过滤 | `src/db/bm25_client.py:30-100` |
+| **多租户隔离** | Qdrant HNSW 索引级 Bitmap 预过滤 | `src/db/qdrant_client.py:50-100` |
+| **全链路可观测性** | LangFuse 追踪 + Metrics 聚合端点 | `src/core/observability.py:1-100` |
 
 ### 📄 OmniParse ETL — 多模态文档解析
 
@@ -109,10 +112,14 @@ Upload (FastAPI) ──▶ Parse (Unstructured PDF) ──▶ Chunk (EnterpriseC
   Celery 异步          VLM 图片描述              表格永不碎片化            租户元数据索引
 ```
 
-- **多模态 PDF 解析**：文本、表格（HTML 格式，永不切分）、图片（VLM 语义描述）
-- **EnterpriseChunker**：滑动窗口切分（800 字符，150 重叠），表格整体保留
-- **分布式 Worker**：Celery + Redis Broker，支持水平扩缩容
-- **向量入库**：`BAAI/bge-large-zh-v1.5` (1024 维) + Qdrant 租户索引
+| 特性 | 源码位置 |
+|------|----------|
+| **多模态 PDF 解析** (文本+表格+图片) | `omniparse_etl/src/parsers/pdf_parser.py:30-80` |
+| **EnterpriseChunker** 格式感知切分 | `omniparse_etl/src/parsers/chunker.py:30-100` |
+| **表格防断裂** — 跨页表格整体保留 | `omniparse_etl/src/parsers/chunker.py:80-100` |
+| **Celery 分布式 Worker** | `omniparse_etl/src/worker/tasks.py:30-80` |
+| **Qdrant 向量化入库** (100 pts/batch) | `omniparse_etl/src/worker/ingestion.py:40-100` |
+| **MinIO 流式上传** | `omniparse_etl/src/storage/minio_client.py:30-60` |
 
 ### 🧠 LangGraph Adaptive RAG — 自适应检索增强生成
 
@@ -132,11 +139,14 @@ flowchart TD
     REWRITE --> RETRIEVE
 ```
 
-- **DCG 有向有环图**：幻觉反射循环 + 查询重写 → 自动重检索 → 重新生成
-- **8 个类型化图节点** + **3 个条件路由边**，`search_count < 2` 电路断路器保证终止
-- **异步并发文档评分**：`asyncio.gather` 并行相关性打分
-- **优雅降级**：Qdrant 不可用时自动回退到 Web 搜索
-- **Mock LLM 层**：无需 API Key 即可端到端离线测试
+| 特性 | 源码位置 |
+|------|----------|
+| **Pydantic 运行时校验** | `src/state.py:17` (AgentState) / `src/chains/router.py:9` (QueryRoute) |
+| **`asyncio.gather` 并行评分** | `src/nodes/grade_documents.py:18-33` |
+| **MemorySaver 断点恢复** | `src/graph.py:232-233` / `src/main.py:30,41` |
+| **幻觉自纠循环 (DCG)** | `src/graph.py` — 8 节点 + 3 条件路由边 |
+| **优雅降级 Qdrant→Web** | `src/nodes/retrieve.py:24-30` |
+| **Mock LLM 离线测试** | `src/mock_llm.py:12` / `src/graph.py:16` |
 
 ### 🤖 CC-Connect Bridge — AI 代理桥接
 
