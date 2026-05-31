@@ -52,8 +52,8 @@ KGateway 是一个**生产级 AI 基础设施平台**，由四个紧密协作的
 | 子系统 | 语言 | 定位 | 端口 |
 |--------|------|------|------|
 | **[KGateway](src/)** | Python | 企业级 LLM 网关 — 统一路由、语义缓存、成本管控 | `8000` |
-| **[OmniParse ETL](omniparse_etl/)** | Python | 多模态文档解析与向量入库流水线 | `8001` |
-| **[LangGraph Adaptive RAG](langgraph_adaptive_rag_engine/)** | Python | 自适应检索增强生成 — 幻觉自纠与查询重写 | — |
+| **[OmniParse ETL](omniparse_etl/)** *(独立仓库)* | Python | 多模态文档解析与向量入库流水线 | `8001` |
+| **[LangGraph Adaptive RAG](langgraph_adaptive_rag_engine/)** *(独立仓库)* | Python | 自适应检索增强生成 — 幻觉自纠与查询重写 | — |
 | **[CC-Connect Bridge](cc-connect-bridge/)** | Go | AI 编码代理 × 聊天平台桥接（Claude Code, Codex 等） | — |
 
 ---
