@@ -1,6 +1,6 @@
 # KGateway
 
-**企业级 AI 基础设施平台 —— 统一 LLM 网关、多模态文档解析与自适应 RAG 引擎**
+**企业级 LLM 网关 —— 统一路由、语义缓存、成本管控、多租户隔离**
 
 ```
 ██╗  ██╗██████╗       ██╗  ██╗ █████╗ ██████╗ ███████╗██████╗  ██████╗ ███████╗
@@ -22,39 +22,37 @@
 KGateway 是一个**生产级 AI 基础设施平台**，由四个紧密协作的子系统组成，覆盖从文档解析、向量入库到智能检索与 LLM 网关的完整链路：
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                        KGateway 生态全景                                 │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  📄 OmniParse ETL        🧠 Adaptive RAG Engine     🚀 KGateway        │
-│  ┌──────────────┐        ┌──────────────────┐      ┌──────────────────┐ │
-│  │ PDF/图片解析  │───────▶│  自适应检索增强   │─────▶│  统一 LLM 网关   │ │
-│  │ 表格识别      │        │  幻觉自纠循环     │      │  语义缓存+熔断   │ │
-│  │ 智能切分      │        │  降级到 Web 搜索  │      │  多租户隔离      │ │
-│  └──────────────┘        └──────────────────┘      └──────────────────┘ │
-│         │                        │                         │            │
-│         ▼                        ▼                         ▼            │
-│  ┌──────────────┐        ┌──────────────────┐      ┌──────────────────┐ │
-│  │   MinIO      │        │   Qdrant         │      │   Redis VSS      │ │
-│  │   (原始文件)  │        │   (向量存储)      │      │   (语义缓存)     │ │
-│  └──────────────┘        └──────────────────┘      └──────────────────┘ │
-│                                                                         │
-│  🤖 CC-Connect Bridge                                                      │
-│  ┌──────────────────────────────────────────────────────────────────┐    │
-│  │  12+ AI Agent × 12+ Chat Platform — 统一 AI 编码代理桥接层       │    │
-│  └──────────────────────────────────────────────────────────────────┘    │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                    KGateway — 统一 LLM 网关                       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ┌──────────────────┐   ┌──────────────────┐   ┌─────────────┐ │
+│  │  🚀 FastAPI 入口  │──▶│  🧠 FSM Agent    │──▶│  📊 响应     │ │
+│  │  SSE 流式端点     │   │  4 次迭代沙箱    │   │  成本审计    │ │
+│  └──────────────────┘   └──────────────────┘   └─────────────┘ │
+│           │                      │                     │        │
+│           ▼                      ▼                     ▼        │
+│  ┌──────────────┐   ┌──────────────────┐   ┌─────────────────┐ │
+│  │  🔍 Dense +   │   │  ⚡ 动态模型路由  │   │  🛡️ 三态熔断器  │ │
+│  │  Sparse 检索  │   │  成本实时估算    │   │  多租户隔离    │ │
+│  └──────────────┘   └──────────────────┘   └─────────────────┘ │
+│           │                     │                      │        │
+│           ▼                     ▼                      ▼        │
+│  ┌──────────────┐   ┌──────────────────┐   ┌─────────────────┐ │
+│  │  Qdrant      │   │  Redis VSS       │   │  LangFuse       │ │
+│  │  向量库       │   │  语义缓存        │   │  全链路追踪     │ │
+│  └──────────────┘   └──────────────────┘   └─────────────────┘ │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-### 四大子系统
+### 生态项目
 
-| 子系统 | 语言 | 定位 | 端口 |
-|--------|------|------|------|
-| **[KGateway](src/)** | Python | 企业级 LLM 网关 — 统一路由、语义缓存、成本管控 | `8000` |
-| **[OmniParse ETL](omniparse_etl/)** *(独立仓库)* | Python | 多模态文档解析与向量入库流水线 | `8001` |
-| **[LangGraph Adaptive RAG](langgraph_adaptive_rag_engine/)** *(独立仓库)* | Python | 自适应检索增强生成 — 幻觉自纠与查询重写 | — |
-| **[CC-Connect Bridge](cc-connect-bridge/)** | Go | AI 编码代理 × 聊天平台桥接（Claude Code, Codex 等） | — |
+| 项目 | 语言 | 定位 | 链接 |
+|------|------|------|------|
+| **KGateway** | Python | 企业级 LLM 网关 — 统一路由、语义缓存、成本管控 | 本仓库 |
+| **OmniParse ETL** | Python | 多模态文档解析与向量入库流水线 | [独立仓库](https://github.com/wcy12378/omniparse-etl) |
+| **LangGraph Adaptive RAG** | Python | 自适应检索增强生成 — 幻觉自纠与查询重写 | [独立仓库](https://github.com/wcy12378/langgraph-adaptive-rag-engine) |
 
 ---
 
@@ -103,27 +101,13 @@ KGateway 是一个**生产级 AI 基础设施平台**，由四个紧密协作的
 
 ### 📄 OmniParse ETL — 多模态文档解析
 
-**4 阶段 ETL Pipeline：**
+> 📦 **独立仓库**：[wcy12378/omniparse-etl](https://github.com/wcy12378/omniparse-etl)
 
-```
-Upload (FastAPI) ──▶ Parse (Unstructured PDF) ──▶ Chunk (EnterpriseChunker) ──▶ Ingest (Qdrant)
-      │                      │                         │                         │
-  MinIO 存储           跨页表格还原              格式感知切分              BGE 向量化入库
-  Celery 异步          VLM 图片描述              表格永不碎片化            租户元数据索引
-```
-
-> ⚠️ OmniParse ETL 已拆分为独立仓库，以下路径为参考。
-
-| 特性 | 源码位置 |
-|------|----------|
-| **多模态 PDF 解析** (文本+表格+图片) | `omniparse_etl/src/parsers/pdf_parser.py:30-80` |
-| **EnterpriseChunker** 格式感知切分 | `omniparse_etl/src/parsers/chunker.py:30-100` |
-| **表格防断裂** — 跨页表格整体保留 | `omniparse_etl/src/parsers/chunker.py:80-100` |
-| **Celery 分布式 Worker** | `omniparse_etl/src/worker/tasks.py:30-80` |
-| **Qdrant 向量化入库** (100 pts/batch) | `omniparse_etl/src/worker/ingestion.py:40-100` |
-| **MinIO 流式上传** | `omniparse_etl/src/storage/minio_client.py:30-60` |
+**4 阶段 ETL Pipeline：** Upload → Parse (Unstructured PDF) → Chunk (EnterpriseChunker) → Ingest (Qdrant)
 
 ### 🧠 LangGraph Adaptive RAG — 自适应检索增强生成
+
+> 📦 **独立仓库**：[wcy12378/langgraph-adaptive-rag-engine](https://github.com/wcy12378/langgraph-adaptive-rag-engine)
 
 ```mermaid
 flowchart TD
@@ -140,24 +124,6 @@ flowchart TD
     HALLUCINATION -- "NOT_SUPPORTED ✗ & count < 2" --> REWRITE["🔄 Rewrite Query"]
     REWRITE --> RETRIEVE
 ```
-
-> ⚠️ LangGraph Adaptive RAG 已拆分为独立仓库，以下路径为参考。
-
-| 特性 | 源码位置 |
-|------|----------|
-| **Pydantic 运行时校验** | `src/state.py:17` (AgentState) / `src/chains/router.py:9` (QueryRoute) |
-| **`asyncio.gather` 并行评分** | `src/nodes/grade_documents.py:18-33` |
-| **MemorySaver 断点恢复** | `src/graph.py:232-233` / `src/main.py:30,41` |
-| **幻觉自纠循环 (DCG)** | `src/graph.py` — 8 节点 + 3 条件路由边 |
-| **优雅降级 Qdrant→Web** | `src/nodes/retrieve.py:24-30` |
-| **Mock LLM 离线测试** | `src/mock_llm.py:12` / `src/graph.py:16` |
-
-### 🤖 CC-Connect Bridge — AI 代理桥接
-
-- **12+ AI Agent**：Claude Code, Codex, Cursor, Gemini CLI, Kimi CLI, Qoder, OpenCode, iFlow, Pi, Devin, ACP, Tmux
-- **12+ Chat Platform**：飞书, Telegram, Discord, Slack, 钉钉, 企业微信, 微信, 微博, QQ, QQ Bot, LINE, WPS 写作
-- **Web 管理面板**：嵌入式管理后台，无需额外依赖
-- **会话管理**：`/new`, `/list`, `/switch`，空闲自动轮换
 
 ---
 
@@ -189,15 +155,8 @@ flowchart TD
 │                                                                      │
 │   🐳 基础设施                                                        │
 │   ────────────────                                                   │
-│   • Docker Compose           7 服务一键编排                           │
-│   • Celery                   分布式任务队列                           │
+│   • Docker Compose           4 服务一键编排                           │
 │   • Locust                   负载测试框架                             │
-│                                                                      │
-│   🔧 CC-Connect Bridge                                                │
-│   ────────────────                                                   │
-│   • Go 1.25                  高性能桥接服务                           │
-│   • BubbleTea + Lip Gloss    TUI 组件                                 │
-│   • WebSocket                实时通信                                 │
 │                                                                      │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -210,7 +169,6 @@ flowchart TD
 
 - **Docker & Docker Compose**（推荐）
 - Python 3.11+（本地开发）
-- Go 1.25+（CC-Connect Bridge）
 
 ### 一键部署（Docker Compose）
 
@@ -230,13 +188,10 @@ docker-compose ps
 
 | 服务 | 端口 | 说明 |
 |------|------|------|
-| `kgw-redis` | `6379` | 语义缓存 + 消息队列 |
+| `kgw-redis` | `6379` | 语义缓存 |
 | `kgw-qdrant` | `6333` / `6334` | 向量数据库 |
 | `kgw-neo4j` | `7474` / `7687` | 知识图谱 |
-| `kgw-minio` | `9000` / `9001` | 对象存储 |
 | `kgw-gateway` | `8000` | KGateway 网关 |
-| `kgw-etl-api` | `8001` | ETL 上传接口 |
-| `kgw-etl-worker` | — | Celery ETL Worker |
 
 ### 验证服务
 
@@ -285,25 +240,14 @@ open http://localhost:8000/docs
 
 **GET** `/docs` — Swagger UI 交互文档
 
-### OmniParse ETL (port 8001)
-
-**POST** `/api/v1/etl/upload` — 上传文档进行解析
-
-```bash
-curl -X POST "http://localhost:8001/api/v1/etl/upload" \
-  -H "Content-Type: multipart/form-data" \
-  -F "file=@document.pdf"
-```
-
 ---
 
 ## 📁 项目结构
 
 ```
 KGateway-/
-├── docker-compose.yml            # 全栈 7 服务编排
+├── docker-compose.yml            # 4 服务编排 (Gateway + 基础设施)
 ├── Dockerfile.gateway             # KGateway 容器构建
-├── Dockerfile.etl                 # ETL 容器构建
 ├── requirements.txt               # Python 依赖
 │
 ├── src/                           # ── KGateway: LLM 网关 ──
@@ -324,40 +268,9 @@ KGateway-/
 │       ├── bm25_client.py         # BM25 稀疏检索
 │       └── neo4j_client.py        # Neo4j 图数据库
 │
-├── tests/                         # ── 测试 ──
-│   ├── test_storage.py            # pytest 单元测试
-│   └── locustfile.py              # Locust 负载测试
-│
-├── omniparse_etl/                 # ── OmniParse ETL: 文档解析 (独立仓库) ──
-│   ├── src/
-│   │   ├── main.py                # FastAPI 入口 (port 8001)
-│   │   ├── api/upload.py          # 文件上传端点
-│   │   ├── parsers/
-│   │   │   ├── pdf_parser.py      # 多模态 PDF 解析
-│   │   │   └── chunker.py         # EnterpriseChunker 格式感知切分
-│   │   ├── storage/minio_client.py
-│   │   └── worker/
-│   │       ├── tasks.py           # Celery ETL 任务
-│   │       └── ingestion.py       # Qdrant 向量化入库
-│   └── requirements.txt
-│
-├── langgraph_adaptive_rag_engine/ # ── Adaptive RAG: 自适应检索 (独立仓库) ──
-│   ├── src/
-│   │   ├── main.py                # 入口 (运行 2 个 Demo Case)
-│   │   ├── graph.py               # 核心 LangGraph 状态图 (8 节点)
-│   │   ├── state.py               # Pydantic AgentState
-│   │   ├── chains/                # 路由、评分、幻觉检测链
-│   │   └── nodes/                 # 检索、评分、搜索、生成节点
-│   ├── test_sanity.py
-│   └── pyproject.toml
-│
-└── cc-connect-bridge/             # ── CC-Connect: AI 代理桥接 (独立仓库) ──
-    ├── cmd/cc-connect/            # Go CLI 入口
-    ├── agent/                     # 12 个 Agent 适配器
-    ├── platform/                  # 12 个平台适配器
-    ├── web/                       # Web 管理面板
-    ├── tests/                     # 黑盒/端到端/集成测试
-    └── Makefile                   # 构建 + 选择性编译
+└── tests/                         # ── 测试 ──
+    ├── test_storage.py            # pytest 单元测试
+    └── locustfile.py              # Locust 负载测试
 ```
 
 ---
@@ -428,15 +341,6 @@ locust -f tests/locustfile.py \
 cd langgraph_adaptive_rag_engine
 uv sync
 uv run pytest test_sanity.py -v
-```
-
-### CC-Connect Bridge 测试
-
-```bash
-cd cc-connect-bridge
-make test-fast        # 快速测试
-make test-full        # 完整测试
-make test-e2e         # 端到端测试
 ```
 
 ---

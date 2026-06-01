@@ -1,7 +1,5 @@
-version: "3.9"
-
 # ═══════════════════════════════════════════════════════════════════
-#  KGateway + OmniParse ETL — Full-stack orchestration
+#  KGateway — LLM 网关全栈编排
 # ═══════════════════════════════════════════════════════════════════
 
 services:
@@ -53,24 +51,6 @@ services:
       timeout: 5s
       retries: 3
 
-  minio:
-    image: minio/minio:latest
-    container_name: kgw-minio
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
-    volumes:
-      - minio-data:/data
-    command: server /data --console-address ":9001"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-
   # ── Application Services ────────────────────────────────────────
 
   gateway:
@@ -98,59 +78,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  etl-api:
-    build:
-      context: .
-      dockerfile: Dockerfile.etl
-    container_name: kgw-etl-api
-    ports:
-      - "8001:8001"
-    environment:
-      REDIS_HOST: redis
-      REDIS_PORT: "6379"
-      MINIO_ENDPOINT: minio:9000
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
-      MINIO_BUCKET: omniparse-raw
-      QDRANT_HOST: qdrant
-      QDRANT_PORT: "6333"
-    depends_on:
-      redis:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-    restart: unless-stopped
-
-  etl-worker:
-    build:
-      context: .
-      dockerfile: Dockerfile.etl
-    container_name: kgw-etl-worker
-    command: >
-      celery -A src.worker.tasks worker
-      --loglevel=info
-      --concurrency=2
-      --max-tasks-per-child=10
-    environment:
-      REDIS_HOST: redis
-      REDIS_PORT: "6379"
-      MINIO_ENDPOINT: minio:9000
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
-      MINIO_BUCKET: omniparse-raw
-      QDRANT_HOST: qdrant
-      QDRANT_PORT: "6333"
-    depends_on:
-      redis:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-      qdrant:
-        condition: service_healthy
-    restart: unless-stopped
-
 volumes:
   redis-data:
   qdrant-data:
   neo4j-data:
-  minio-data:
