@@ -83,6 +83,10 @@ class SparseRetriever:
         default_factory=lambda: defaultdict(set),
         init=False, repr=False,
     )
+    _doc_lengths: Dict[str, int] = field(
+        default_factory=dict,
+        init=False, repr=False,
+    )
 
     def _index_key(self, tenant_id: str, department: str) -> str:
         return f"{tenant_id}:{department}"
@@ -108,6 +112,7 @@ class SparseRetriever:
         self._tenant_dept_index[key].add(doc_id)
 
         tokens = _tokenize(text)
+        self._doc_lengths[doc_id] = len(tokens)  # 预计算精确 doc_len
         self._tokenized_docs.setdefault(key, []).append(tokens)
 
         # 更新倒排索引
@@ -172,14 +177,10 @@ class SparseRetriever:
             if tf == 0:
                 continue
 
-            # BM25 formula — doc_len: 从倒排索引中反向查找当前文档的 token 数
-            # 先收集当前文档在索引中出现过的所有 token 对应的 tf，累计作为 doc_len 的近似
-            doc_len = 0
-            for qt_check in query_tokens:
-                doc_len += self._inverted_index[qt_check].get(doc_id, 0)
+            # BM25 formula — doc_len: 索引构建时预计算的精确文档词数
+            doc_len = self._doc_lengths.get(doc_id, 0)
             if doc_len == 0:
-                # 文档不在任何查询词的倒排索引中，用平均文档长度兜底
-                doc_len = avg_dl
+                doc_len = avg_dl  # 兜底：文档词数未知时用平均文档长度
 
             tf_norm = (tf * (self.k1 + 1)) / (tf + self.k1 * (1 - self.b + self.b * doc_len / avg_dl))
             score += idf * tf_norm
