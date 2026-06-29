@@ -5,6 +5,7 @@
 ![KAgent Demo](https://github.com/wcy12378/KGateway-/releases/download/v0.1.0/demo.gif)
 
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![CI](https://github.com/wcy12378/KGateway-/actions/workflows/ci.yml/badge.svg)](https://github.com/wcy12378/KGateway-/actions/workflows/ci.yml)
 [![React 19](https://img.shields.io/badge/React-19-149ECA?logo=react&logoColor=white)](https://react.dev/)
 [![MCP SDK](https://img.shields.io/badge/MCP-Official_SDK-7C3AED)](https://github.com/modelcontextprotocol/python-sdk)
 [![License](https://img.shields.io/badge/License-MIT-22C55E)](#license)
