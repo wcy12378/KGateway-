@@ -1,0 +1,217 @@
+@import "tailwindcss";
+
+/* ============================================================
+   KAgent — AI Infrastructure Console / Tech Blue System
+   深色科技蓝控制台：冷静、精密、可读，保留高密度数据能力。
+   ============================================================ */
+
+@theme {
+  --color-crt-bg: #07111f;
+  --color-crt-bg-elevated: #0b1728;
+  --color-crt-bg-panel: #102039;
+  --color-crt-fg: #eaf2ff;
+  --color-crt-fg-dim: #b7c8df;
+  --color-crt-fg-muted: #91a7c4;
+  --color-crt-red: #f05d68;
+  --color-crt-green: #32d583;
+  --color-crt-border: #203451;
+  --color-crt-border-strong: #2f7bff;
+
+  --font-sans: 'Geist', 'Inter', 'SF Pro Display', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'IBM Plex Mono', 'Consolas', monospace;
+}
+
+:root {
+  --kg-bg: #07111f;
+  --kg-bg-soft: #09182b;
+  --kg-panel: rgba(11, 23, 40, 0.92);
+  --kg-panel-raised: rgba(16, 32, 57, 0.92);
+  --kg-border: rgba(111, 151, 202, 0.24);
+  --kg-border-strong: rgba(47, 123, 255, 0.55);
+  --kg-blue: #2f7bff;
+  --kg-blue-soft: #57a0ff;
+  --kg-cyan: #55d6ff;
+  --kg-text: #eaf2ff;
+  --kg-muted: #91a7c4;
+  --kg-dim: #6f86a6;
+  --kg-success: #32d583;
+  --kg-warning: #f5b942;
+  --kg-danger: #f05d68;
+  --kg-radius-panel: 8px;
+  --kg-radius-control: 6px;
+  --kg-shadow: 0 18px 60px rgba(0, 24, 68, 0.32);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  letter-spacing: 0;
+  color-scheme: dark;
+  color: var(--kg-text);
+  background: var(--kg-bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  overflow-x: hidden;
+  background:
+    radial-gradient(circle at 18% -10%, rgba(47, 123, 255, 0.22), transparent 36rem),
+    radial-gradient(circle at 92% 8%, rgba(85, 214, 255, 0.12), transparent 30rem),
+    linear-gradient(180deg, #07111f 0%, #081525 54%, #06101d 100%);
+}
+
+#root {
+  width: 100%;
+  height: 100dvh;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  transition:
+    border-color 180ms ease,
+    background-color 180ms ease,
+    color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease,
+    opacity 180ms ease;
+}
+
+button:active:not(:disabled),
+a:active {
+  transform: translateY(1px);
+}
+
+:focus-visible {
+  outline: 2px solid rgba(87, 160, 255, 0.9);
+  outline-offset: 2px;
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: rgba(7, 17, 31, 0.82); }
+::-webkit-scrollbar-thumb {
+  background: rgba(111, 151, 202, 0.42);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(87, 160, 255, 0.7); }
+
+::selection {
+  background: rgba(47, 123, 255, 0.35);
+  color: var(--kg-text);
+}
+
+.font-macro {
+  font-family: var(--font-sans);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+}
+
+.font-label {
+  font-family: var(--font-sans);
+  font-size: 0.72rem !important;
+  font-weight: 650;
+  letter-spacing: 0.11em;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.page-loading {
+  min-height: calc(100dvh - 6rem);
+  display: grid;
+  place-items: center;
+  color: var(--kg-muted);
+  font-family: var(--font-mono);
+}
+
+.status-alert {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid rgba(240, 93, 104, 0.36);
+  border-radius: var(--kg-radius-control);
+  background: rgba(240, 93, 104, 0.09);
+  color: #ffd7dc;
+  box-shadow: 0 12px 36px rgba(240, 93, 104, 0.08);
+}
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--kg-border);
+  border-radius: var(--kg-radius-control);
+  background: rgba(16, 32, 57, 0.65);
+  color: var(--kg-muted);
+}
+
+.icon-button:hover {
+  border-color: var(--kg-border-strong);
+  color: var(--kg-text);
+  background: rgba(47, 123, 255, 0.12);
+}
+
+.bg-crt-bg-elevated,
+.bg-crt-bg-panel {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+.border-crt-border,
+.border-crt-border-strong {
+  border-color: var(--kg-border);
+}
+
+input,
+select,
+textarea {
+  border-radius: var(--kg-radius-control);
+}
+
+table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+@media (width >= 48rem) {
+  .md\:hidden {
+    display: none !important;
+  }
+
+  .md\:inline-flex {
+    display: inline-flex !important;
+  }
+}
