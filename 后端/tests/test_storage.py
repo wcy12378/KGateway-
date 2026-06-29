@@ -180,7 +180,7 @@ class TestNeo4jCypher:
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=False)
 
-        mock_driver = AsyncMock()
+        mock_driver = MagicMock()
         mock_driver.session.return_value = mock_session
 
         repo = GraphRepository()
