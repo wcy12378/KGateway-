@@ -166,8 +166,8 @@ class TestNeo4jCypher:
         """查询参数应正确传递给 driver.session.run()。"""
         from src.db.neo4j_client import GraphRepository
 
-        mock_result = AsyncMock()
-        mock_result.__aiter__ = MagicMock(return_value=iter([]))
+        mock_result = MagicMock()
+        mock_result.__aiter__.return_value = []
         mock_result.summary.counters.nodes_created = 0
         mock_result.summary.counters.relationships_created = 0
         mock_result.summary.counters.properties_set = 0
