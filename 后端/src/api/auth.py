@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import hmac
 import logging
 import time
 import uuid
@@ -13,7 +14,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from src.config import config
@@ -41,6 +42,10 @@ def create_token(
     expires_in: int = 86400,
 ) -> str:
     """签发 JWT token，默认有效期 24 小时。"""
+    user_id = user_id.strip()
+    tenant_id = tenant_id.strip()
+    if not user_id or not tenant_id:
+        raise ValueError("user_id 和 tenant_id 不能为空")
     now = time.time()
     payload = {
         "user_id": user_id,
@@ -49,6 +54,8 @@ def create_token(
         "exp": now + expires_in,
         "iat": now,
         "jti": str(uuid.uuid4()),
+        "iss": config.jwt_issuer,
+        "aud": config.jwt_audience,
     }
     return jwt.encode(payload, config.jwt_secret, algorithm=config.jwt_algorithm)
 
@@ -60,7 +67,20 @@ def verify_token(token: str) -> TokenPayload:
             token,
             config.jwt_secret,
             algorithms=[config.jwt_algorithm],
-            options={"require": ["user_id", "tenant_id", "department", "exp", "iat", "jti"]},
+            issuer=config.jwt_issuer,
+            audience=config.jwt_audience,
+            options={
+                "require": [
+                    "user_id",
+                    "tenant_id",
+                    "department",
+                    "exp",
+                    "iat",
+                    "jti",
+                    "iss",
+                    "aud",
+                ]
+            },
         )
         user_id = payload["user_id"]
         tenant_id = payload["tenant_id"]
@@ -72,8 +92,8 @@ def verify_token(token: str) -> TokenPayload:
         if department not in _ALLOWED_DEPARTMENTS:
             raise jwt.InvalidTokenError("department claim 无效")
         return TokenPayload(
-            user_id=user_id,
-            tenant_id=tenant_id,
+            user_id=user_id.strip(),
+            tenant_id=tenant_id.strip(),
             department=department,
             exp=float(payload["exp"]),
         )
@@ -99,6 +119,34 @@ async def get_current_user(
             detail="缺少认证信息，请在请求头中添加 Authorization: Bearer <token>",
         )
     return verify_token(credentials.credentials)
+
+
+def verify_api_key_value(x_api_key: Optional[str]) -> Optional[TokenPayload]:
+    """验证 API Key，并返回受控的服务身份。"""
+    if not config.api_key:
+        return None
+    if x_api_key is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="缺少 X-API-Key 请求头",
+        )
+    if not hmac.compare_digest(x_api_key.encode("utf-8"), config.api_key.encode("utf-8")):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="无效的 API Key",
+        )
+    return TokenPayload(
+        user_id="api_key_client",
+        tenant_id="default_tenant",
+        department="general",
+    )
+
+
+async def verify_api_key(
+    x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
+) -> Optional[TokenPayload]:
+    """FastAPI 依赖：API Key 未配置时跳过，配置后进行验证。"""
+    return verify_api_key_value(x_api_key)
 
 
 # 公开端点列表（不需要认证）。token 路由仅供开发与测试使用。

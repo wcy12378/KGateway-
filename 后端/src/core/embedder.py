@@ -47,6 +47,16 @@ def embed_text(text: str, model_name: str = "") -> List[float]:
     return embedding.tolist()
 
 
+def warmup_embedding(model_name: str = "") -> int:
+    """Load the embedding model and run one inference before readiness."""
+    if not model_name:
+        from src.config import config as _cfg
+        model_name = _cfg.embedding_model_name
+    model = _get_model(model_name)
+    model.encode("KAgent embedding warmup", normalize_embeddings=True)
+    return int(model.get_embedding_dimension())
+
+
 def embedding_dimension(model_name: str = "") -> int:
     """返回当前 embedding 模型的实际向量维度。"""
     if not model_name:

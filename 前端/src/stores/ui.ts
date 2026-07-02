@@ -25,7 +25,7 @@ interface UIActions {
 export const useUIStore = create<UIState & UIActions>((set) => ({
   sidebarCollapsed: false,
   mobileMenuOpen: false,
-  theme: 'dark',
+  theme: 'light',
 
   toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
   setSidebarCollapsed: (v) => set({ sidebarCollapsed: v }),

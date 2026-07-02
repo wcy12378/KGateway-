@@ -102,6 +102,63 @@ async def test_react_agent_overrides_model_supplied_tenant_scope() -> None:
     }
 
 
+@pytest.mark.asyncio
+async def test_react_agent_overrides_scope_for_every_scoped_tool() -> None:
+    captured: dict[str, str] = {}
+
+    async def enterprise_action(query: str, tenant_id: str, user_id: str) -> str:
+        captured.update(query=query, tenant_id=tenant_id, user_id=user_id)
+        return "done"
+
+    registry = ToolRegistry()
+    spec = ToolSpec(
+        name="enterprise_action",
+        description="test",
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "tenant_id": {"type": "string"},
+                "user_id": {"type": "string"},
+            },
+            "required": ["query", "tenant_id", "user_id"],
+        },
+    )
+    registry.register(Tool("enterprise_action", "test", enterprise_action, spec))
+
+    class FakeProvider:
+        calls = 0
+
+        async def chat(self, messages: list[dict], **_: Any) -> dict:
+            self.calls += 1
+            if self.calls == 1:
+                return {
+                    "content": "run",
+                    "tool_calls": [{
+                        "name": "enterprise_action",
+                        "args": {
+                            "query": "policy",
+                            "tenant_id": "attacker",
+                            "user_id": "attacker",
+                        },
+                    }],
+                }
+            return {"content": "done", "tool_calls": []}
+
+    provider = FakeProvider()
+    result = await ReActAgent(SimpleNamespace(get_provider=lambda: provider), registry).run(
+        "question",
+        context={"tenant_id": "trusted-tenant", "user_id": "trusted-user"},
+    )
+
+    assert result.answer == "done"
+    assert captured == {
+        "query": "policy",
+        "tenant_id": "trusted-tenant",
+        "user_id": "trusted-user",
+    }
+
+
 def test_jwt_requires_identity_claims() -> None:
     """签名正确但缺少身份声明的 token 也必须拒绝。"""
     incomplete = jwt.encode({"exp": 4_102_444_800}, config.jwt_secret, algorithm=config.jwt_algorithm)

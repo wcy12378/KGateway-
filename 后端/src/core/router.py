@@ -139,10 +139,14 @@ class ModelRouter:
         async with self._lock:
             self.token_counter.record(model, input_tokens, output_tokens)
 
-        cost = self.token_counter.estimate_cost(model)
+        pricing = config.pricing_for(model)
+        request_cost = (
+            (input_tokens / 1000) * pricing.input_price_per_1k
+            + (output_tokens / 1000) * pricing.output_price_per_1k
+        )
         logger.info(
             "model=%s in_tok=%d out_tok=%d cost=$%.6f latency=%.1fms",
-            model, input_tokens, output_tokens, cost, latency_ms,
+            model, input_tokens, output_tokens, request_cost, latency_ms,
         )
 
         return GatewayResponse(
@@ -151,7 +155,7 @@ class ModelRouter:
             answer=result.get("content", ""),
             token_input=input_tokens,
             token_output=output_tokens,
-            estimated_cost_usd=round(cost, 8),
+            estimated_cost_usd=round(request_cost, 8),
             latency_ms=round(latency_ms, 2),
         )
 

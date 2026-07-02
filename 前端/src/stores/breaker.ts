@@ -8,18 +8,14 @@ import type { CircuitBreakerStats } from '@/types';
 
 interface BreakerState {
   stats: CircuitBreakerStats | null;
-  isOperating: boolean;
 }
 
 interface BreakerActions {
   setStats: (s: CircuitBreakerStats) => void;
-  setOperating: (v: boolean) => void;
 }
 
 export const useBreakerStore = create<BreakerState & BreakerActions>((set) => ({
   stats: null,
-  isOperating: false,
 
   setStats: (stats) => set({ stats }),
-  setOperating: (v) => set({ isOperating: v }),
 }));

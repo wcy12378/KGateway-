@@ -4,7 +4,7 @@
  * 本文件负责连接网关 stream 接口，并把解析后的帧写入聊天状态。它不负责定义
  * SSE 协议格式、渲染消息 UI 或维护请求参数。
  */
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { GATEWAY_ENDPOINTS, parseSSEPayload } from '@/lib/gateway';
 import { createAuthHeaders, readErrorMessage } from '@/lib/http';
 import { useChatStore } from '@/stores/chat';
@@ -16,16 +16,21 @@ import type { ChatMessage } from '@/types';
  */
 export function useSSEStream() {
   const addMessage = useChatStore((s) => s.addMessage);
-  const updateLastAssistant = useChatStore((s) => s.updateLastAssistant);
-  const setLastMessageMetadata = useChatStore((s) => s.setLastMessageMetadata);
-  const setLastMessageStreaming = useChatStore((s) => s.setLastMessageStreaming);
+  const appendAssistantContent = useChatStore((s) => s.appendAssistantContent);
+  const setMessageMetadata = useChatStore((s) => s.setMessageMetadata);
+  const setMessageStreaming = useChatStore((s) => s.setMessageStreaming);
+  const setMessagePhase = useChatStore((s) => s.setMessagePhase);
   const setStreaming = useChatStore((s) => s.setStreaming);
   const setAbortController = useChatStore((s) => s.setAbortController);
   const buildRequest = useChatStore((s) => s.buildRequest);
+  const controllerRef = useRef<AbortController | null>(null);
+  const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
 
   const stream = useCallback(
     async (text: string) => {
       const controller = new AbortController();
+      controllerRef.current?.abort();
+      controllerRef.current = controller;
       setAbortController(controller);
       setStreaming(true);
 
@@ -45,6 +50,7 @@ export function useSSEStream() {
         isStreaming: true,
       };
       addMessage(assistantMsg);
+      let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
 
       try {
         const request = buildRequest(text);
@@ -64,7 +70,8 @@ export function useSSEStream() {
           throw new Error('Empty streaming response');
         }
 
-        const reader = response.body.getReader();
+        reader = response.body.getReader();
+        readerRef.current = reader;
         const decoder = new TextDecoder();
         let buffer = '';
 
@@ -85,22 +92,28 @@ export function useSSEStream() {
 
             try {
               if (frame.kind === 'done') {
-                setLastMessageStreaming(false);
+                setMessageStreaming(assistantMsg.id, false);
+                setMessagePhase(assistantMsg.id, undefined);
                 continue;
               }
 
-              if (frame.kind === 'text' || frame.kind === 'info') {
-                updateLastAssistant(frame.text);
+              if (frame.kind === 'text') {
+                appendAssistantContent(assistantMsg.id, frame.text);
+                continue;
+              }
+
+              if (frame.kind === 'info') {
+                setMessagePhase(assistantMsg.id, frame.phase);
                 continue;
               }
 
               if (frame.kind === 'metadata') {
-                setLastMessageMetadata(frame.event);
+                setMessageMetadata(assistantMsg.id, frame.event);
                 continue;
               }
 
               if (frame.kind === 'error') {
-                setLastMessageMetadata(frame.event);
+                setMessageMetadata(assistantMsg.id, frame.event);
                 addMessage({
                   id: crypto.randomUUID(),
                   role: 'system',
@@ -112,15 +125,15 @@ export function useSSEStream() {
                 });
               }
             } catch (innerErr) {
-              updateLastAssistant('STREAM PARSE ERROR');
-              setLastMessageStreaming(false);
+              appendAssistantContent(assistantMsg.id, 'STREAM PARSE ERROR');
+              setMessageStreaming(assistantMsg.id, false);
               console.error('[useSSE] frame processing error:', innerErr, payload);
             }
           }
         }
       } catch (err: unknown) {
         if (err instanceof DOMException && err.name === 'AbortError') {
-          setLastMessageStreaming(false);
+          setMessageStreaming(assistantMsg.id, false);
         } else {
           addMessage({
             id: crypto.randomUUID(),
@@ -128,21 +141,34 @@ export function useSSEStream() {
             content: err instanceof Error ? err.message : 'Connection failed',
             timestamp: Date.now(),
           });
-          setLastMessageStreaming(false);
+          setMessageStreaming(assistantMsg.id, false);
         }
       } finally {
-        setStreaming(false);
-        setAbortController(null);
+        setMessageStreaming(assistantMsg.id, false);
+        if (reader && readerRef.current === reader) {
+          try {
+            reader.releaseLock();
+          } catch {
+            // Reader may already be released after cancellation.
+          }
+          readerRef.current = null;
+        }
+        if (controllerRef.current === controller) {
+          controllerRef.current = null;
+          setStreaming(false);
+          setAbortController(null);
+        }
       }
     },
     [
       addMessage,
       buildRequest,
       setAbortController,
-      setLastMessageMetadata,
-      setLastMessageStreaming,
+      appendAssistantContent,
+      setMessageMetadata,
+      setMessagePhase,
+      setMessageStreaming,
       setStreaming,
-      updateLastAssistant,
     ]
   );
 
@@ -152,7 +178,13 @@ export function useSSEStream() {
       if (detail?.text) stream(detail.text);
     };
     window.addEventListener('chat:send', handler);
-    return () => window.removeEventListener('chat:send', handler);
+    return () => {
+      window.removeEventListener('chat:send', handler);
+      controllerRef.current?.abort();
+      if (readerRef.current) {
+        void readerRef.current.cancel().catch(() => undefined);
+      }
+    };
   }, [stream]);
 
   return { stream };

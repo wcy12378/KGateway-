@@ -306,7 +306,7 @@ KAgent/
 │   │   └── hooks/useSSE.ts                 # SSE 流式 Hook
 │   └── public/
 │
-└── spec文件夹/
+└── spec/
     ├── 项目流程梳理.md
     ├── 解耦重构Spec.md
     ├── 前端UI修复与科技蓝重设计Spec.md

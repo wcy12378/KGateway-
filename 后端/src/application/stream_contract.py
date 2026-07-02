@@ -15,6 +15,14 @@ STATUS_TEXT = "text"
 STATUS_INFO = "info"
 STATUS_METADATA = "metadata"
 STATUS_ERROR = "error"
+STREAM_PHASES = [
+    "checking_cache",
+    "cache_hit",
+    "running_fast_lane",
+    "retrieving_knowledge",
+    "waiting_provider",
+    "running_agent",
+]
 
 
 def sse_encode(data: Dict[str, Any]) -> str:
@@ -27,6 +35,11 @@ def sse_encode(data: Dict[str, Any]) -> str:
 
 def sse_done() -> str:
     return "data: [DONE]\n\n"
+
+
+def heartbeat_frame() -> str:
+    """SSE comment keepalive，不触发客户端业务事件。"""
+    return ": ping\n\n"
 
 
 def text_frame(text: str, **metadata: Any) -> str:
@@ -80,7 +93,9 @@ def contract_payload() -> Dict[str, Any]:
         "stream": {
             "transport": "server_sent_events",
             "done_sentinel": "[DONE]",
+            "heartbeat": ": ping",
             "statuses": [STATUS_TEXT, STATUS_INFO, STATUS_METADATA, STATUS_ERROR],
+            "phases": STREAM_PHASES,
             "required_fields": ["protocol_version", "status", "event", "text"],
             "compatibility": "top-level fields are preserved for existing clients",
         },

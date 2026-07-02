@@ -41,23 +41,23 @@ export function ConfirmDialog({
   return (
     <div
       ref={backdropRef}
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/75 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/30 p-4"
       onClick={(e) => {
         if (e.target === backdropRef.current) onCancel();
       }}
     >
-      <div className="w-full max-w-[420px] bg-crt-bg-panel border border-crt-red rounded-lg overflow-hidden shadow-2xl">
+      <div className="w-full max-w-[420px] overflow-hidden rounded-[10px] border border-crt-border bg-white shadow-xl">
         {/* Header */}
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-crt-border bg-crt-red/10">
+        <div className="flex items-center gap-2 border-b border-crt-border px-4 py-3">
           <AlertTriangle size={16} className="text-crt-red" />
-          <span className="font-label text-crt-red tracking-[0.15em]">
+          <span className="text-[13px] font-semibold text-crt-fg">
             {title}
           </span>
         </div>
 
         {/* Body */}
         <div className="px-4 py-4">
-          <p className="text-crt-fg text-[12px] font-mono leading-relaxed">
+          <p className="text-[12px] leading-6 text-crt-fg-dim">
             {message}
           </p>
         </div>
@@ -66,13 +66,13 @@ export function ConfirmDialog({
         <div className="flex justify-end gap-2 px-4 py-3 border-t border-crt-border">
           <button
             onClick={onCancel}
-            className="px-4 py-1.5 border border-crt-border text-crt-fg-dim font-label tracking-widest hover:border-crt-border-strong hover:text-crt-fg transition-colors rounded-md"
+            className="button-secondary"
           >
             取消
           </button>
           <button
             onClick={onConfirm}
-            className="px-4 py-1.5 bg-crt-red text-crt-bg font-label tracking-widest hover:bg-crt-red/80 transition-colors rounded-md"
+            className="button-danger"
           >
             {confirmLabel}
           </button>

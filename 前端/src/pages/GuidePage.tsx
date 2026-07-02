@@ -12,6 +12,7 @@ import {
   Settings2,
   Shield,
 } from 'lucide-react';
+import { PageHeader } from '@/components/PageHeader';
 
 interface GuideSection {
   title: string;
@@ -120,34 +121,20 @@ const SECTIONS: GuideSection[] = [
 export default function GuidePage() {
   return (
     <div>
-      <div className="mb-5 border-b border-crt-border pb-4">
-        <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:gap-4">
-          <h1 className="font-macro text-[clamp(2rem,5vw,3.5rem)] leading-none text-crt-fg">
-            使用说明
-          </h1>
-          <span className="font-label text-crt-fg-muted">
-            模块说明与操作指南
-          </span>
-        </div>
-        <p className="mt-3 max-w-3xl text-[13px] leading-6 text-crt-fg-dim">
-          本页面用于解释 KAgent 控制台每个模块的作用、使用方式和常见状态。
-          如果页面出现“请求失败（HTTP 502）”，通常表示前端代理无法连接后端
-          FastAPI 服务，需要先启动 8000 端口的后端。
-        </p>
-      </div>
+      <PageHeader title="使用说明" description="了解各模块的用途、操作方式与常见状态" />
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         {SECTIONS.map((section) => (
           <section
             key={section.title}
-            className="rounded-lg border border-crt-border bg-crt-bg-elevated p-4"
+            className="surface-panel p-4"
           >
             <div className="mb-4 flex items-start gap-3">
               <div className="icon-button shrink-0">
                 <section.icon size={17} aria-hidden="true" />
               </div>
               <div>
-                <h2 className="font-macro text-[22px] leading-tight text-crt-fg">
+                <h2 className="text-[15px] font-semibold leading-tight text-crt-fg">
                   {section.title}
                 </h2>
                 <p className="mt-1 text-[13px] leading-5 text-crt-fg-muted">
@@ -161,7 +148,7 @@ export default function GuidePage() {
                 <div className="font-label mb-2 text-crt-fg-muted">模块作用</div>
                 <ul className="space-y-2 text-[13px] leading-5 text-crt-fg-dim">
                   {section.points.map((item) => (
-                    <li key={item} className="rounded-md bg-crt-bg/50 px-3 py-2">
+                    <li key={item} className="border-b border-crt-border py-2 last:border-0">
                       {item}
                     </li>
                   ))}
@@ -172,7 +159,7 @@ export default function GuidePage() {
                 <div className="font-label mb-2 text-crt-fg-muted">如何使用</div>
                 <ol className="space-y-2 text-[13px] leading-5 text-crt-fg-dim">
                   {section.usage.map((item, index) => (
-                    <li key={item} className="flex gap-2 rounded-md bg-crt-bg/50 px-3 py-2">
+                    <li key={item} className="flex gap-2 border-b border-crt-border py-2 last:border-0">
                       <span className="font-mono text-crt-border-strong">
                         {index + 1}.
                       </span>

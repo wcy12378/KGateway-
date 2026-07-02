@@ -13,3 +13,6 @@ jieba
 python-dotenv
 PyJWT
 mcp>=1.27,<2
+slowapi
+locust
+pytest-asyncio

@@ -22,7 +22,7 @@ class DeepSeekProvider(LLMProvider):
     """通过 DeepSeek Chat Completions API 提供聊天能力。"""
 
     def __init__(self, config: object) -> None:
-        self.config = config
+        super().__init__(config)
 
     @property
     def name(self) -> str:
@@ -52,9 +52,8 @@ class DeepSeekProvider(LLMProvider):
         if tools:
             payload["tools"] = tools
         headers = {"Authorization": f"Bearer {self.config.deepseek_api_key}"}
-        async with httpx.AsyncClient(timeout=httpx.Timeout(120, connect=10)) as client:
-            response = await client.post(self.config.deepseek_api_url, headers=headers, json=payload)
-            response.raise_for_status()
+        response = await self.client.post(self.config.deepseek_api_url, headers=headers, json=payload)
+        response.raise_for_status()
         data = response.json()
         message = data.get("choices", [{}])[0].get("message", {})
         usage = data.get("usage", {})
@@ -63,6 +62,7 @@ class DeepSeekProvider(LLMProvider):
             "input_tokens": usage.get("prompt_tokens", 0),
             "output_tokens": usage.get("completion_tokens", 0),
             "tool_calls": message.get("tool_calls") or [],
+            "model": data.get("model") or payload["model"],
         }
 
     async def chat_stream(
@@ -87,19 +87,18 @@ class DeepSeekProvider(LLMProvider):
             "max_tokens": max_tokens,
         }
         headers = {"Authorization": f"Bearer {self.config.deepseek_api_key}"}
-        async with httpx.AsyncClient(timeout=httpx.Timeout(120, connect=10)) as client:
-            async with client.stream("POST", self.config.deepseek_api_url, headers=headers, json=payload) as response:
-                response.raise_for_status()
-                async for line in response.aiter_lines():
-                    if not line.startswith("data: "):
-                        continue
-                    raw = line[6:]
-                    if raw == "[DONE]":
-                        break
-                    try:
-                        delta = json.loads(raw).get("choices", [{}])[0].get("delta", {})
-                    except json.JSONDecodeError:
-                        continue
-                    content = delta.get("content")
-                    if content:
-                        yield content
+        async with self.client.stream("POST", self.config.deepseek_api_url, headers=headers, json=payload) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if not line.startswith("data: "):
+                    continue
+                raw = line[6:]
+                if raw == "[DONE]":
+                    break
+                try:
+                    delta = json.loads(raw).get("choices", [{}])[0].get("delta", {})
+                except json.JSONDecodeError:
+                    continue
+                content = delta.get("content")
+                if content:
+                    yield content

@@ -6,8 +6,27 @@
  */
 const DEFAULT_TIMEOUT_MS = 15_000;
 const TOKEN_STORAGE_KEY = 'kagent_token';
-const DEV_AUTH_ENABLED = import.meta.env.VITE_ENABLE_DEV_AUTH === 'true';
+export const DEV_AUTH_ENABLED = import.meta.env.VITE_ENABLE_DEV_AUTH === 'true';
 let pendingTokenRequest: Promise<string | null> | null = null;
+
+export function isTokenExpired(token: string): boolean {
+  try {
+    const encodedPayload = token.split('.')[1];
+    if (!encodedPayload) return true;
+    const normalized = encodedPayload.replaceAll('-', '+').replaceAll('_', '/');
+    const padding = '='.repeat((4 - normalized.length % 4) % 4);
+    const payload = JSON.parse(atob(normalized + padding)) as { exp?: unknown };
+    return typeof payload.exp !== 'number' || payload.exp <= Date.now() / 1000;
+  } catch {
+    return true;
+  }
+}
+
+export function clearStoredToken(): void {
+  if (typeof window !== 'undefined') {
+    window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+  }
+}
 
 export class HttpError extends Error {
   readonly status: number;
@@ -61,9 +80,13 @@ interface TokenResponse {
 }
 
 function storedToken(): string | null {
-  return typeof window === 'undefined'
-    ? null
-    : window.localStorage.getItem(TOKEN_STORAGE_KEY);
+  if (typeof window === 'undefined') return null;
+  const token = window.localStorage.getItem(TOKEN_STORAGE_KEY);
+  if (token && isTokenExpired(token)) {
+    clearStoredToken();
+    return null;
+  }
+  return token;
 }
 
 export async function ensureToken(): Promise<string | null> {
@@ -125,6 +148,7 @@ export async function requestJson<T>(
       signal: timeoutController.signal,
     });
     if (!response.ok) {
+      if (response.status === 401) clearStoredToken();
       throw new HttpError(await readErrorMessage(response), response.status);
     }
     if (response.status === 204) return undefined as T;

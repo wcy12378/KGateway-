@@ -64,11 +64,17 @@ class TraceContext:
 
     # 聚合指标
     cache_hit: bool = False
+    cache_hit_type: str = "none"
+    response_source: str = ""
     model_used: str = ""
     total_tokens: int = 0
     estimated_cost_usd: float = 0.0
     ttft_ms: float = 0.0
     total_latency_ms: float = 0.0
+    provider_ttft_ms: float = 0.0
+    provider_total_ms: float = 0.0
+    cache_lookup_ms: float = 0.0
+    app_overhead_ms: float = 0.0
 
     def start_span(self, name: str) -> Span:
         """开始一个新的链路跨度。"""
@@ -84,6 +90,7 @@ class TraceContext:
     def finalize(self) -> None:
         """最终化追踪数据。"""
         self.total_latency_ms = (time.perf_counter() - self.t_start) * 1000
+        self.app_overhead_ms = max(0.0, self.total_latency_ms - self.provider_total_ms)
 
     def to_dict(self) -> Dict[str, Any]:
         """序列化为可导出的字典。"""
@@ -95,7 +102,13 @@ class TraceContext:
             "created_at": self.created_at,
             "ttft_ms": round(self.ttft_ms, 2),
             "total_latency_ms": round(self.total_latency_ms, 2),
+            "provider_ttft_ms": round(self.provider_ttft_ms, 2),
+            "provider_total_ms": round(self.provider_total_ms, 2),
+            "cache_lookup_ms": round(self.cache_lookup_ms, 2),
+            "app_overhead_ms": round(self.app_overhead_ms, 2),
             "cache_hit": self.cache_hit,
+            "cache_hit_type": self.cache_hit_type,
+            "response_source": self.response_source,
             "model_used": self.model_used,
             "total_tokens": self.total_tokens,
             "estimated_cost_usd": round(self.estimated_cost_usd, 8),
@@ -122,6 +135,9 @@ class MetricsAggregator:
     total_requests: int = 0
     total_cache_hits: int = 0
     total_cache_misses: int = 0
+    exact_cache_hits: int = 0
+    semantic_cache_hits: int = 0
+    fast_lane_hits: int = 0
     total_tokens: int = 0
     total_cost_usd: float = 0.0
     total_latency_ms: float = 0.0
@@ -139,8 +155,14 @@ class MetricsAggregator:
             self.total_requests += 1
             if ctx.cache_hit:
                 self.total_cache_hits += 1
+                if ctx.cache_hit_type == "exact":
+                    self.exact_cache_hits += 1
+                elif ctx.cache_hit_type == "semantic":
+                    self.semantic_cache_hits += 1
             else:
                 self.total_cache_misses += 1
+            if ctx.response_source in {"calculator", "faq"}:
+                self.fast_lane_hits += 1
             self.total_tokens += ctx.total_tokens
             self.total_cost_usd += ctx.estimated_cost_usd
             self.total_latency_ms += ctx.total_latency_ms
@@ -176,6 +198,9 @@ class MetricsAggregator:
             "cache_hit_rate": round(self.total_cache_hits / max(cache_total, 1), 4),
             "cache_hits": self.total_cache_hits,
             "cache_misses": self.total_cache_misses,
+            "exact_cache_hits": self.exact_cache_hits,
+            "semantic_cache_hits": self.semantic_cache_hits,
+            "fast_lane_hits": self.fast_lane_hits,
             "total_tokens": self.total_tokens,
             "total_cost_usd": round(self.total_cost_usd, 8),
             "avg_latency_ms": round(self.total_latency_ms / max(self.total_requests, 1), 2),

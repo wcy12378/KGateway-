@@ -8,6 +8,15 @@
 export type Department = 'legal' | 'hr' | 'engineering' | 'finance' | 'general';
 export type CircuitState = 'CLOSED' | 'OPEN' | 'HALF_OPEN';
 export type SSEStatus = 'text' | 'info' | 'metadata' | 'error';
+export type SSEPhase = 'checking_cache' | 'cache_hit' | 'running_fast_lane' | 'retrieving_knowledge' | 'waiting_provider' | 'running_agent';
+export type CacheHitType = 'none' | 'exact' | 'semantic';
+export type ResponseSource =
+  | 'cache'
+  | 'calculator'
+  | 'faq'
+  | 'provider'
+  | 'agent'
+  | 'knowledge_unavailable';
 
 // ===== 请求/响应类型 =====
 export interface GatewayRequest {
@@ -27,6 +36,7 @@ export interface SSEEvent {
   cache_hit?: boolean;
   trace_id?: string;
   model?: string;
+  provider?: string;
   circuit_breaker?: boolean;
   circuit_breaker_state?: CircuitState | 'N/A';
   routing_decision?: string;
@@ -35,9 +45,15 @@ export interface SSEEvent {
   total_tokens?: number;
   estimated_cost_usd?: number;
   ttft_ms?: number;
+  provider_ttft_ms?: number;
+  cache_lookup_ms?: number;
+  app_overhead_ms?: number;
   total_latency_ms?: number;
   session_id?: string;
   error?: string;
+  phase?: SSEPhase;
+  cache_hit_type?: CacheHitType;
+  response_source?: ResponseSource;
 }
 
 export interface MetricsSnapshot {
@@ -45,10 +61,14 @@ export interface MetricsSnapshot {
   cache_hit_rate: number;
   cache_hits: number;
   cache_misses: number;
+  exact_cache_hits?: number;
+  semantic_cache_hits?: number;
+  fast_lane_hits?: number;
   total_tokens: number;
   total_cost_usd: number;
   avg_latency_ms: number;
   latency_distribution: LatencyDistribution;
+  cache?: { connected: boolean; semantic_ready: boolean; namespace_version: string };
 }
 
 export interface LatencyDistribution {
@@ -100,6 +120,14 @@ export interface TraceListResponse {
   offset: number;
 }
 
+export interface WorkflowAgentSummary { name: string; description: string; prompt_name: string; prompt_version: string | null; }
+export interface WorkflowSummary { name: string; mode: 'sequential' | 'routing' | 'parallel'; agents: WorkflowAgentSummary[]; }
+export interface WorkflowStepResult { agent_name: string; status: string; answer: string; duration_ms: number; total_tokens: number; error?: string | null; }
+export interface WorkflowRunResult { workflow_name: string; mode: string; status: string; final_answer: string; session_id: string; steps: WorkflowStepResult[]; total_duration_ms: number; total_tokens: number; }
+export interface PromptSummary { name: string; active_version: string; versions: string[]; description: string; variables: string[]; hash: string; }
+export interface AuditEntry { audit_id: string; timestamp: string; user_id: string; tenant_id: string; session_id: string; trace_id: string; workflow_name: string; agent_name: string; call_id: string; tool_name: string; tool_params: Record<string, unknown>; result_status: 'success' | 'failure'; result_summary: string; duration_ms: number; }
+export interface AuditListResponse { total: number; limit: number; offset: number; entries: AuditEntry[]; }
+
 // ===== 前端内部类型 =====
 export interface ChatMessage {
   id: string;
@@ -108,4 +136,5 @@ export interface ChatMessage {
   metadata?: SSEEvent;
   timestamp: number;
   isStreaming?: boolean;
+  phase?: SSEPhase;
 }

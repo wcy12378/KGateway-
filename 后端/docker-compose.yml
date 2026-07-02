@@ -6,14 +6,14 @@ services:
   # ── Infrastructure ───────────────────────────────────────────────
 
   redis:
-    image: redis/redis-stack-server:latest
+    image: redis/redis-stack-server:7.4.0-v8
     container_name: kgw-redis
     ports:
       - "6379:6379"
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG && redis-cli FT._LIST >/dev/null"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -68,6 +68,7 @@ services:
       NEO4J_PASSWORD: ${NEO4J_PASSWORD:-kagent_dev}
       REDIS_URL: redis://redis:6379
       KAGENT_DEBUG: "false"
+      KAGENT_FAQ_PATH: /app/config/faq.json
     depends_on:
       redis:
         condition: service_healthy

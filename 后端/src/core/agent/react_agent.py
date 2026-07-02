@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import time
@@ -10,23 +11,13 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from src.core.agent.memory import MemoryManager
+from src.core.audit import AuditEntry, AuditLogger
+from src.core.prompts.registry import PromptNotFoundError, PromptRegistry, get_registry as get_prompt_registry
 from src.core.schemas import GatewayRequest
-from src.core.tools.registry import ToolRegistry, get_registry
+from src.core.tools.registry import TRUSTED_CONTEXT_PARAMETERS, ToolRegistry, get_registry
 
 logger = logging.getLogger("kagent.core.agent.react_agent")
-
-SYSTEM_PROMPT_TEMPLATE = """你是一个企业级 AI 助手，可以调用以下工具来帮助用户解决问题。
-
-可用工具：
-{tools_description}
-
-工作流程：
-1. 分析用户问题，决定是否需要调用工具
-2. 如果需要工具，请调用工具获取信息
-3. 根据工具返回结果，给出最终答案
-4. 如果不需要工具，可以直接回答
-"""
-
 
 @dataclass
 class ReActStep:
@@ -47,6 +38,10 @@ class ReActResult:
     steps: List[ReActStep] = field(default_factory=list)
     total_duration_ms: float = 0.0
     total_tokens: int = 0
+    status: str = "completed"
+    error: Optional[str] = None
+    provider_used: str = ""
+    model_used: str = ""
 
 
 @dataclass
@@ -59,8 +54,11 @@ class AgentState:
     next_node: str = "planner_node"
     final_answer: str = ""
     rag_context: str = ""
+    trace_id: str = ""
     iteration: int = 0
     max_iterations: int = 4
+    provider_used: str = ""
+    model_used: str = ""
 
     def snapshot(self) -> Dict[str, Any]:
         """返回用于观测的轻量状态快照。"""
@@ -122,6 +120,12 @@ class ReActAgent:
         provider_factory: Any,
         tool_registry: Optional[ToolRegistry] = None,
         max_iterations: int = 6,
+        memory_manager: Optional[MemoryManager] = None,
+        default_system_prompt: Optional[str] = None,
+        prompt_registry: Optional[PromptRegistry] = None,
+        prompt_name: str = "react_default",
+        prompt_version: Optional[str] = None,
+        audit_logger: Optional[AuditLogger] = None,
     ) -> None:
         if provider_factory is None:
             from src.core.providers.factory import ProviderFactory
@@ -130,17 +134,46 @@ class ReActAgent:
         self.provider_factory = provider_factory
         self.tool_registry = tool_registry or get_registry()
         self.max_iterations = max(1, max_iterations)
+        self.memory_manager = memory_manager
+        self.default_system_prompt = default_system_prompt
+        self.prompt_registry = prompt_registry or get_prompt_registry()
+        self.prompt_name = prompt_name
+        self.prompt_version = prompt_version
+        self.audit_logger = audit_logger
 
     def _system_prompt(self, custom_prompt: Optional[str], context: Optional[Dict[str, Any]]) -> str:
         tools_description = "\n".join(
             f"- {registered_tool.name}: {registered_tool.description}"
             for registered_tool in self.tool_registry.get_all()
         ) or "无"
-        prompt = custom_prompt or SYSTEM_PROMPT_TEMPLATE.format(tools_description=tools_description)
-        if context:
-            context_text = json.dumps(context, ensure_ascii=False, default=str)
-            prompt = f"{prompt}\n当前请求上下文：{context_text}"
-        return prompt
+        if custom_prompt or self.default_system_prompt:
+            prompt = custom_prompt or self.default_system_prompt or ""
+            if context:
+                context_text = json.dumps(context, ensure_ascii=False, default=str)
+                prompt = f"{prompt}\n当前请求上下文：{context_text}"
+            return prompt
+
+        context_text = json.dumps(context or {}, ensure_ascii=False, default=str)
+        try:
+            return self.prompt_registry.render(
+                self.prompt_name,
+                self.prompt_version,
+                tools_description=tools_description,
+                request_context=context_text,
+            )
+        except PromptNotFoundError:
+            if self.prompt_name == "react_default":
+                raise
+            logger.warning(
+                "Prompt '%s' v%s 未注册，回退 react_default 活动版本",
+                self.prompt_name,
+                self.prompt_version or "active",
+            )
+            return self.prompt_registry.render(
+                "react_default",
+                tools_description=tools_description,
+                request_context=context_text,
+            )
 
     @staticmethod
     def _result(
@@ -148,52 +181,177 @@ class ReActAgent:
         steps: List[ReActStep],
         started_at: float,
         total_tokens: int,
+        *,
+        status: str = "completed",
+        error: Optional[str] = None,
+        provider_used: str = "",
+        model_used: str = "",
     ) -> ReActResult:
         return ReActResult(
             answer=answer,
             steps=steps,
             total_duration_ms=round((time.perf_counter() - started_at) * 1000, 2),
             total_tokens=total_tokens,
+            status=status,
+            error=error,
+            provider_used=provider_used,
+            model_used=model_used,
         )
+
+    async def _memory_prompt(
+        self,
+        question: str,
+        context: Optional[Dict[str, Any]],
+    ) -> str:
+        if self.memory_manager is None or not context:
+            return ""
+        user_id = str(context.get("user_id") or "")
+        tenant_id = str(context.get("tenant_id") or "")
+        if not user_id or not tenant_id:
+            return ""
+        try:
+            memories = await self.memory_manager.get_relevant_memories(
+                query=question,
+                user_id=user_id,
+                tenant_id=tenant_id,
+            )
+            return self.memory_manager.format_memories_for_prompt(memories)
+        except Exception as exc:
+            logger.warning("记忆检索失败，已跳过: %s", exc)
+            return ""
+
+    async def _finalize_result(
+        self,
+        answer: str,
+        steps: List[ReActStep],
+        started_at: float,
+        total_tokens: int,
+        *,
+        question: str,
+        context: Optional[Dict[str, Any]],
+        persist_memory: bool,
+        status: str = "completed",
+        error: Optional[str] = None,
+        provider_used: str = "",
+        model_used: str = "",
+    ) -> ReActResult:
+        result = self._result(
+            answer,
+            steps,
+            started_at,
+            total_tokens,
+            status=status,
+            error=error,
+            provider_used=provider_used,
+            model_used=model_used,
+        )
+        if status != "completed" or not persist_memory or self.memory_manager is None or not context:
+            return result
+        try:
+            await self.memory_manager.remember_exchange(
+                question=question,
+                answer=result.answer,
+                user_id=str(context.get("user_id") or ""),
+                tenant_id=str(context.get("tenant_id") or ""),
+            )
+        except Exception as exc:
+            logger.warning("记忆存储失败，已跳过: %s", exc)
+        return result
+
+    async def _chat(self, messages: List[Dict[str, Any]], *, tools: Optional[list[dict]]) -> dict:
+        """优先使用 Factory 的自动 fallback，兼容简单测试 Factory。"""
+        fallback_chat = getattr(self.provider_factory, "chat_with_fallback", None)
+        if callable(fallback_chat):
+            return await fallback_chat(messages, tools=tools)
+        provider = self.provider_factory.get_provider()
+        if provider is None:
+            raise RuntimeError("AI 服务未配置")
+        response = await provider.chat(messages, tools=tools)
+        if isinstance(response, dict):
+            response.setdefault("provider", getattr(provider, "name", ""))
+            models = provider.get_models() if hasattr(provider, "get_models") else []
+            response.setdefault("model", models[0] if models else "")
+        return response
 
     async def run(
         self,
         question: str,
         system_prompt: Optional[str] = None,
         context: Optional[Dict[str, Any]] = None,
+        *,
+        memory_query: Optional[str] = None,
+        persist_memory: bool = True,
     ) -> ReActResult:
         """执行逐轮 Tool Calling，直到模型给出最终答案。"""
         started_at = time.perf_counter()
         steps: List[ReActStep] = []
         total_tokens = 0
-        provider = self.provider_factory.get_provider()
-        if provider is None:
-            return self._result("AI 服务未配置", steps, started_at, total_tokens)
+        fallback_chat = getattr(self.provider_factory, "chat_with_fallback", None)
+        if not callable(fallback_chat) and self.provider_factory.get_provider() is None:
+            return await self._finalize_result(
+                "AI 服务未配置",
+                steps,
+                started_at,
+                total_tokens,
+                question=question,
+                context=context,
+                persist_memory=persist_memory,
+                status="failed",
+                error="AI 服务未配置",
+            )
 
         tools = self.tool_registry.to_openai_tools()
+        prompt = self._system_prompt(system_prompt, context)
+        memory_prompt = await self._memory_prompt(memory_query or question, context)
+        if memory_prompt:
+            prompt = f"{prompt}{memory_prompt}"
         messages: List[Dict[str, Any]] = [
-            {"role": "system", "content": self._system_prompt(system_prompt, context)},
+            {"role": "system", "content": prompt},
             {"role": "user", "content": question},
         ]
         last_content = ""
+        last_provider = ""
+        last_model = ""
 
         for iteration in range(self.max_iterations):
             try:
-                response = await provider.chat(
+                response = await self._chat(
                     messages,
                     tools=tools if iteration < self.max_iterations - 1 else None,
                 )
             except Exception as exc:
                 logger.exception("LLM 调用失败: %s", exc)
                 answer = steps[-1].observation if steps else "服务暂时不可用"
-                return self._result(answer, steps, started_at, total_tokens)
+                return await self._finalize_result(
+                    answer,
+                    steps,
+                    started_at,
+                    total_tokens,
+                    question=question,
+                    context=context,
+                    persist_memory=persist_memory,
+                    status="failed",
+                    error=f"{type(exc).__name__}: {str(exc)[:300]}",
+                )
 
             if not isinstance(response, dict):
                 logger.error("LLM 返回了非对象响应: %s", type(response).__name__)
                 answer = steps[-1].observation if steps else "服务暂时不可用"
-                return self._result(answer, steps, started_at, total_tokens)
+                return await self._finalize_result(
+                    answer,
+                    steps,
+                    started_at,
+                    total_tokens,
+                    question=question,
+                    context=context,
+                    persist_memory=persist_memory,
+                    status="failed",
+                    error=f"无效响应类型: {type(response).__name__}",
+                )
 
             last_content = str(response.get("content") or "")
+            last_provider = str(response.get("provider") or last_provider)
+            last_model = str(response.get("model") or last_model)
             try:
                 total_tokens += int(response.get("input_tokens") or 0)
                 total_tokens += int(response.get("output_tokens") or 0)
@@ -205,7 +363,31 @@ class ReActAgent:
                 logger.warning("LLM 返回了无效 tool_calls，已作为空列表处理")
                 raw_tool_calls = []
             if not raw_tool_calls:
-                return self._result(last_content, steps, started_at, total_tokens)
+                if not last_content.strip():
+                    return await self._finalize_result(
+                        "服务暂时不可用",
+                        steps,
+                        started_at,
+                        total_tokens,
+                        question=question,
+                        context=context,
+                        persist_memory=False,
+                        status="failed",
+                        error="LLM 返回空答案",
+                        provider_used=last_provider,
+                        model_used=last_model,
+                    )
+                return await self._finalize_result(
+                    last_content,
+                    steps,
+                    started_at,
+                    total_tokens,
+                    question=question,
+                    context=context,
+                    persist_memory=persist_memory,
+                    provider_used=last_provider,
+                    model_used=last_model,
+                )
 
             normalized_calls: List[Dict[str, Any]] = []
             parsed_calls: List[tuple[str, str, Dict[str, Any], Optional[str]]] = []
@@ -240,7 +422,10 @@ class ReActAgent:
 
             for call_id, name, arguments, parse_error in parsed_calls:
                 tool_started_at = time.perf_counter()
+                audit_timestamp = datetime.now(timezone.utc).isoformat()
                 observation = ""
+                effective_arguments = dict(arguments)
+                call_succeeded = False
                 if parse_error:
                     observation = f"工具调用解析失败: {parse_error}"
                 else:
@@ -249,17 +434,59 @@ class ReActAgent:
                         observation = f"工具不存在: {name}"
                     else:
                         call_arguments = dict(arguments)
-                        if name == "query_knowledge" and context:
-                            # 身份作用域只能来自已认证请求，不能信任模型生成的参数。
-                            call_arguments["tenant_id"] = context.get("tenant_id", "default_tenant")
-                            call_arguments["department"] = context.get("department", "general")
                         try:
+                            properties = registered_tool.spec.parameters.get("properties", {})
+                            scoped_parameters = set(properties) & TRUSTED_CONTEXT_PARAMETERS
+                            try:
+                                scoped_parameters.update(
+                                    set(inspect.signature(registered_tool.fn).parameters)
+                                    & TRUSTED_CONTEXT_PARAMETERS
+                                )
+                            except (TypeError, ValueError):
+                                pass
+                            if name == "query_knowledge":
+                                scoped_parameters.update({"tenant_id", "department"})
+                            for parameter_name in TRUSTED_CONTEXT_PARAMETERS:
+                                call_arguments.pop(parameter_name, None)
+                                if parameter_name in scoped_parameters and context:
+                                    trusted_value = context.get(parameter_name)
+                                    if trusted_value is not None:
+                                        call_arguments[parameter_name] = getattr(
+                                            trusted_value,
+                                            "value",
+                                            trusted_value,
+                                        )
+                            call_arguments = registered_tool.validate_arguments(call_arguments)
+                            effective_arguments = call_arguments
                             observation = str(await registered_tool.fn(**call_arguments))
+                            call_succeeded = True
                         except Exception as exc:
                             logger.warning("工具 %s 调用失败: %s", name, exc)
                             observation = f"工具调用失败: {type(exc).__name__}: {exc}"
 
                 duration_ms = round((time.perf_counter() - tool_started_at) * 1000, 2)
+                if self.audit_logger is not None:
+                    try:
+                        audit_context = context or {}
+                        self.audit_logger.record(
+                            AuditEntry(
+                                timestamp=audit_timestamp,
+                                user_id=str(audit_context.get("user_id") or ""),
+                                tenant_id=str(audit_context.get("tenant_id") or ""),
+                                session_id=str(audit_context.get("session_id") or ""),
+                                trace_id=str(audit_context.get("trace_id") or ""),
+                                workflow_name=str(audit_context.get("workflow_name") or ""),
+                                agent_name=str(audit_context.get("agent_name") or "react_agent"),
+                                call_id=call_id,
+                                tool_name=name,
+                                tool_params=effective_arguments,
+                                result_status="success" if call_succeeded else "failure",
+                                result_summary=observation,
+                                duration_ms=duration_ms,
+                            )
+                        )
+                    except Exception as exc:
+                        logger.warning("工具审计记录失败，已跳过: %s", exc)
                 steps.append(
                     ReActStep(
                         thought=last_content,
@@ -279,7 +506,19 @@ class ReActAgent:
                 )
 
         fallback_answer = last_content or (steps[-1].observation if steps else "服务暂时不可用")
-        return self._result(fallback_answer, steps, started_at, total_tokens)
+        return await self._finalize_result(
+            fallback_answer,
+            steps,
+            started_at,
+            total_tokens,
+            question=question,
+            context=context,
+            persist_memory=False,
+            status="max_iterations_exceeded",
+            error="ReAct 达到最大迭代次数",
+            provider_used=last_provider,
+            model_used=last_model,
+        )
 
 
 class AgentRuntime:
@@ -291,6 +530,9 @@ class AgentRuntime:
         rag_pipeline_fn: Any = None,
         max_iterations: int = 4,
         timeout_seconds: float = 60.0,
+        memory_manager: Optional[MemoryManager] = None,
+        prompt_registry: Optional[PromptRegistry] = None,
+        audit_logger: Optional[AuditLogger] = None,
     ) -> None:
         self.max_iterations = max_iterations
         self.timeout_seconds = timeout_seconds
@@ -298,6 +540,9 @@ class AgentRuntime:
         self._react_agent = ReActAgent(
             provider_factory=provider_factory,
             max_iterations=max_iterations,
+            memory_manager=memory_manager,
+            prompt_registry=prompt_registry,
+            audit_logger=audit_logger,
         )
 
     async def execute_graph(self, state: AgentState) -> AgentState:
@@ -309,17 +554,22 @@ class AgentRuntime:
                 self._react_agent.run(
                     question=state.request.question,
                     context={
+                        "user_id": state.request.user_id,
                         "tenant_id": state.request.tenant_id,
                         "department": department,
+                        "session_id": state.request.session_id,
+                        "trace_id": state.trace_id,
                     },
                 ),
                 timeout=self.timeout_seconds,
             )
         except asyncio.TimeoutError:
             logger.warning("Agent 执行超时: %.1fs", self.timeout_seconds)
-            result = ReActResult(answer="服务暂时不可用")
+            result = ReActResult(answer="服务暂时不可用", status="failed", error="执行超时")
 
         state.final_answer = result.answer
+        state.provider_used = result.provider_used
+        state.model_used = result.model_used
         state.next_node = "END"
         state.iteration = len(result.steps)
         state.steps = [

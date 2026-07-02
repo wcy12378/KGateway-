@@ -30,11 +30,11 @@ const MetricCard = memo(function MetricCard({
       : 'text-crt-fg';
 
   return (
-    <div className="bg-crt-bg-elevated border border-crt-border p-4 flex flex-col justify-between min-h-[116px] rounded-lg">
+    <div className="surface-panel flex min-h-[112px] flex-col justify-between p-4">
       <div className="font-label text-crt-fg-muted tracking-[0.12em]">
         {label}
       </div>
-      <div className={`font-macro text-[clamp(1.6rem,3vw,2.35rem)] leading-none tabular-nums ${colorClass}`}>
+      <div className={`text-[24px] font-semibold leading-none tabular-nums ${colorClass}`}>
         {value}
       </div>
       <div className="font-label text-crt-fg-muted mt-1">
@@ -53,7 +53,7 @@ const TotalRequestsCard = memo(function TotalRequestsCard({
 }) {
   return (
     <MetricCard
-      value={snapshot ? snapshot.total_requests.toLocaleString() : '—'}
+      value={snapshot ? snapshot.total_requests.toLocaleString() : '-'}
       label="请求总数"
       sub="累计请求量"
     />
@@ -66,7 +66,7 @@ const CacheHitRateCard = memo(function CacheHitRateCard({
 }: {
   snapshot: MetricsSnapshot | null;
 }) {
-  const rate = snapshot ? (snapshot.cache_hit_rate * 100).toFixed(1) + '%' : '—';
+  const rate = snapshot ? (snapshot.cache_hit_rate * 100).toFixed(1) + '%' : '-';
   return (
     <MetricCard
       value={rate}
@@ -87,8 +87,8 @@ const TokenCostCard = memo(function TokenCostCard({
 }: {
   snapshot: MetricsSnapshot | null;
 }) {
-  const tokens = snapshot ? snapshot.total_tokens.toLocaleString() : '—';
-  const cost = snapshot ? '$' + snapshot.total_cost_usd.toFixed(4) : '$—';
+  const tokens = snapshot ? snapshot.total_tokens.toLocaleString() : '-';
+  const cost = snapshot ? '$' + snapshot.total_cost_usd.toFixed(4) : '$-';
   return (
     <MetricCard
       value={tokens}
@@ -106,7 +106,7 @@ const AvgLatencyCard = memo(function AvgLatencyCard({
 }) {
   const latency = snapshot
     ? Math.round(snapshot.avg_latency_ms) + 'ms'
-    : '—';
+    : '-';
   return (
     <MetricCard
       value={latency}

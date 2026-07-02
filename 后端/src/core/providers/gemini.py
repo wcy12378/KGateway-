@@ -84,7 +84,7 @@ class GeminiProvider(LLMProvider):
     api_base = "https://generativelanguage.googleapis.com/v1beta/models"
 
     def __init__(self, config: object) -> None:
-        self.config = config
+        super().__init__(config)
 
     @property
     def name(self) -> str:
@@ -143,13 +143,12 @@ class GeminiProvider(LLMProvider):
             return {"content": _fallback_text(messages), "input_tokens": 0, "output_tokens": 0, "tool_calls": []}
 
         selected_model = model or self.config.gemini_model
-        async with httpx.AsyncClient(timeout=httpx.Timeout(120, connect=10)) as client:
-            response = await client.post(
-                self._url(selected_model, stream=False),
-                headers=self._headers(),
-                json=self._payload(messages, temperature, max_tokens, tools),
-            )
-            response.raise_for_status()
+        response = await self.client.post(
+            self._url(selected_model, stream=False),
+            headers=self._headers(),
+            json=self._payload(messages, temperature, max_tokens, tools),
+        )
+        response.raise_for_status()
         data = response.json()
         parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
         usage = data.get("usageMetadata", {})
@@ -176,22 +175,21 @@ class GeminiProvider(LLMProvider):
             return
 
         selected_model = model or self.config.gemini_model
-        async with httpx.AsyncClient(timeout=httpx.Timeout(120, connect=10)) as client:
-            async with client.stream(
-                "POST",
-                self._url(selected_model, stream=True),
-                headers=self._headers(),
-                json=self._payload(messages, temperature, max_tokens),
-            ) as response:
-                response.raise_for_status()
-                async for line in response.aiter_lines():
-                    if not line.startswith("data: "):
-                        continue
-                    try:
-                        data = json.loads(line[6:])
-                    except json.JSONDecodeError:
-                        continue
-                    parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
-                    for part in parts:
-                        if part.get("text"):
-                            yield part["text"]
+        async with self.client.stream(
+            "POST",
+            self._url(selected_model, stream=True),
+            headers=self._headers(),
+            json=self._payload(messages, temperature, max_tokens),
+        ) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if not line.startswith("data: "):
+                    continue
+                try:
+                    data = json.loads(line[6:])
+                except json.JSONDecodeError:
+                    continue
+                parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+                for part in parts:
+                    if part.get("text"):
+                        yield part["text"]

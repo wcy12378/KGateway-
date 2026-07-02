@@ -64,6 +64,7 @@ class HybridRagService:
         tenant_id: str,
         department: str,
         top_k: int = 20,
+        query_vector: Optional[List[float]] = None,
     ) -> List[Dict[str, Any]]:
         """执行带租户和部门硬过滤的真实 Qdrant 向量检索。"""
         if self.qdrant_store is None or not self.qdrant_store.connected:
@@ -73,7 +74,8 @@ class HybridRagService:
         try:
             from src.core.embedder import embed_text
 
-            query_vector = await asyncio.to_thread(embed_text, query)
+            if query_vector is None:
+                query_vector = await asyncio.to_thread(embed_text, query)
             results = await self.qdrant_store.search_tenant_knowledge(
                 tenant_id=tenant_id,
                 department=department,
@@ -101,6 +103,7 @@ class HybridRagService:
         tenant_id: str,
         department: str,
         top_k: int = 3,
+        query_vector: Optional[List[float]] = None,
     ) -> tuple[List[RerankResult], Dict[str, Any]]:
         rag_metrics: Dict[str, Any] = {}
 
@@ -111,6 +114,7 @@ class HybridRagService:
                 tenant_id=tenant_id,
                 department=department,
                 top_k=20,
+                query_vector=query_vector,
             )
         )
         sparse_task = asyncio.create_task(
@@ -122,7 +126,21 @@ class HybridRagService:
             )
         )
 
-        dense_results, sparse_results = await asyncio.gather(dense_task, sparse_task)
+        dense_result, sparse_result = await asyncio.gather(
+            dense_task,
+            sparse_task,
+            return_exceptions=True,
+        )
+        if isinstance(dense_result, BaseException):
+            logger.warning("Dense 检索失败，降级为空结果: %s", dense_result)
+            dense_results = []
+        else:
+            dense_results = dense_result
+        if isinstance(sparse_result, BaseException):
+            logger.warning("BM25 检索失败，降级为空结果: %s", sparse_result)
+            sparse_results = []
+        else:
+            sparse_results = sparse_result
         rag_metrics["dense_latency_ms"] = round((time.perf_counter() - t_dense_start) * 1000, 2)
         rag_metrics["dense_hits"] = len(dense_results)
         rag_metrics["sparse_hits"] = len(sparse_results)
@@ -167,5 +185,6 @@ class HybridRagService:
                 for doc in fused[:top_k]
             ]
 
+        rerank_results = rerank_results[:top_k]
         rag_metrics["rerank_output"] = len(rerank_results)
         return rerank_results, rag_metrics

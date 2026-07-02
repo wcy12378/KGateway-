@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from contextlib import AsyncExitStack
@@ -30,13 +31,21 @@ class MCPToolSpec:
 class MCPClient:
     """通过官方 SDK 管理单个 stdio MCP Server 会话。"""
 
-    def __init__(self, server_name: str, command: str, args: List[str] | None = None) -> None:
+    def __init__(
+        self,
+        server_name: str,
+        command: str,
+        args: List[str] | None = None,
+        operation_timeout: float = 30.0,
+    ) -> None:
         self.server_name = server_name
         self.command = command
         self.args = args or []
+        self.operation_timeout = max(0.001, float(operation_timeout))
         self._exit_stack: AsyncExitStack | None = None
         self._session: ClientSession | None = None
         self._capabilities: Any = None
+        self._lifecycle_lock = asyncio.Lock()
 
     @property
     def connected(self) -> bool:
@@ -45,34 +54,35 @@ class MCPClient:
 
     async def connect(self) -> None:
         """启动 MCP Server 子进程并完成官方初始化握手。"""
-        if self.connected:
-            return
+        async with self._lifecycle_lock:
+            if self.connected:
+                return
 
-        stack = AsyncExitStack()
-        try:
-            server_params = StdioServerParameters(
-                command=self.command,
-                args=self.args,
-            )
-            read_stream, write_stream = await stack.enter_async_context(
-                stdio_client(server_params)
-            )
-            session = await stack.enter_async_context(
-                ClientSession(read_stream, write_stream)
-            )
-            initialization = await session.initialize()
-        except Exception:
-            await stack.aclose()
-            raise
+            stack = AsyncExitStack()
+            try:
+                server_params = StdioServerParameters(
+                    command=self.command,
+                    args=self.args,
+                )
+                read_stream, write_stream = await stack.enter_async_context(
+                    stdio_client(server_params)
+                )
+                session = await stack.enter_async_context(
+                    ClientSession(read_stream, write_stream)
+                )
+                initialization = await session.initialize()
+            except Exception:
+                await stack.aclose()
+                raise
 
-        self._exit_stack = stack
-        self._session = session
-        self._capabilities = initialization.capabilities
-        logger.info(
-            "MCP Server '%s' 已连接，能力: %s",
-            self.server_name,
-            self._capabilities,
-        )
+            self._exit_stack = stack
+            self._session = session
+            self._capabilities = initialization.capabilities
+            logger.info(
+                "MCP Server '%s' 已连接，能力: %s",
+                self.server_name,
+                self._capabilities,
+            )
 
     def _require_session(self) -> ClientSession:
         if self._session is None:
@@ -81,19 +91,32 @@ class MCPClient:
 
     async def list_tools(self) -> List[MCPToolSpec]:
         """获取 MCP Server 暴露的工具列表。"""
-        result = await self._require_session().list_tools()
-        return [
-            MCPToolSpec(
-                name=item.name,
-                description=item.description or "",
-                parameters=item.inputSchema,
+        session = self._require_session()
+        tools: List[MCPToolSpec] = []
+        cursor: str | None = None
+        while True:
+            result = await asyncio.wait_for(
+                session.list_tools(cursor=cursor),
+                timeout=self.operation_timeout,
             )
-            for item in result.tools
-        ]
+            tools.extend(
+                MCPToolSpec(
+                    name=item.name,
+                    description=item.description or "",
+                    parameters=item.inputSchema,
+                )
+                for item in result.tools
+            )
+            cursor = getattr(result, "nextCursor", None)
+            if not cursor:
+                return tools
 
     async def call_tool(self, name: str, arguments: Dict[str, Any]) -> str:
         """调用 MCP 工具，并把文本或结构化结果转换为字符串。"""
-        result = await self._require_session().call_tool(name, arguments)
+        result = await asyncio.wait_for(
+            self._require_session().call_tool(name, arguments),
+            timeout=self.operation_timeout,
+        )
         texts = [
             str(item.text)
             for item in result.content
@@ -109,10 +132,11 @@ class MCPClient:
 
     async def close(self) -> None:
         """关闭 MCP 会话和 Server 子进程。"""
-        stack = self._exit_stack
-        self._session = None
-        self._exit_stack = None
-        self._capabilities = None
-        if stack is not None:
-            await stack.aclose()
-            logger.info("MCP Server '%s' 已断开", self.server_name)
+        async with self._lifecycle_lock:
+            stack = self._exit_stack
+            self._session = None
+            self._exit_stack = None
+            self._capabilities = None
+            if stack is not None:
+                await stack.aclose()
+                logger.info("MCP Server '%s' 已断开", self.server_name)

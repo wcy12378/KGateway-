@@ -10,13 +10,9 @@ import asyncio
 import logging
 from typing import Any, AsyncGenerator
 
-from src.config import config
-from src.core.providers.factory import ProviderFactory
+from src.core.providers.factory import ProviderFactory, ProviderUnavailableError
 
 logger = logging.getLogger("kagent.application.streaming_tasks")
-
-provider_factory = ProviderFactory()
-provider_factory.init(config)
 
 HEARTBEAT_INTERVAL_S = 0.2
 
@@ -41,6 +37,7 @@ async def simulate_llm_tokens(
 async def stream_llm_api(
     prompt: str,
     *,
+    provider_factory: ProviderFactory,
     system_prompt: str = "You are a professional enterprise knowledge assistant.",
     model: str | None = None,
     temperature: float = 0.7,
@@ -48,13 +45,12 @@ async def stream_llm_api(
 ) -> AsyncGenerator[str, None]:
     """通过当前 LLM Provider 调用流式接口并产出文本 token。"""
 
-    provider = provider_factory.get_provider()
-    if provider is not None:
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt},
-        ]
-        async for chunk in provider.chat_stream(
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": prompt},
+    ]
+    try:
+        async for chunk in provider_factory.chat_stream_with_fallback(
             messages,
             model=model,
             temperature=temperature,
@@ -62,8 +58,10 @@ async def stream_llm_api(
         ):
             yield chunk
         return
+    except ProviderUnavailableError:
+        pass
 
-    logger.warning("LLM Provider 未配置 API Key，使用模拟流")
+    logger.warning("所有 LLM Provider 均不可用，使用模拟流")
     async for chunk in simulate_llm_tokens(prompt):
         yield chunk
 
@@ -87,30 +85,22 @@ async def race_with_heartbeat(http_request: Any, awaitable: Any) -> Any:
 
     stop_event = asyncio.Event()
     heartbeat_task = asyncio.create_task(heartbeat_disconnect_monitor(http_request, stop_event))
-    shielded_heartbeat = asyncio.shield(heartbeat_task)
     work_task = asyncio.create_task(awaitable)
 
     try:
         done, _ = await asyncio.wait(
-            {work_task, shielded_heartbeat},
+            {work_task, heartbeat_task},
             return_when=asyncio.FIRST_COMPLETED,
         )
-        if shielded_heartbeat in done:
+        if heartbeat_task in done:
             work_task.cancel()
-            try:
-                await work_task
-            except asyncio.CancelledError:
-                pass
+            await asyncio.gather(work_task, return_exceptions=True)
             raise ClientDisconnectedError("client disconnected")
-
-        shielded_heartbeat.cancel()
-        try:
-            await shielded_heartbeat
-        except asyncio.CancelledError:
-            pass
         return work_task.result()
-    except ClientDisconnectedError:
-        raise
     finally:
-        if not shielded_heartbeat.done():
-            shielded_heartbeat.cancel()
+        stop_event.set()
+        if not heartbeat_task.done():
+            heartbeat_task.cancel()
+        if not work_task.done():
+            work_task.cancel()
+        await asyncio.gather(heartbeat_task, work_task, return_exceptions=True)

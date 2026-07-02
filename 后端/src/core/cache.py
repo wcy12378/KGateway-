@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import struct
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
@@ -19,8 +20,21 @@ logger = logging.getLogger("kagent.core.cache")
 
 
 # ── Redis Index 名称 ────────────────────────────────────────────
-_CACHE_INDEX = "kagent:semantic_cache"
 _CACHE_PREFIX = "kagent:cache"
+_EXACT_CACHE_PREFIX = "kagent:exact"
+
+
+def _cache_index(namespace_version: str) -> str:
+    return f"kagent:semantic_cache:{namespace_version}"
+
+
+def _escape_tag_value(value: str) -> str:
+    return re.sub(r"([^\w])", r"\\\1", value)
+
+
+def _cache_scope(tenant_id: str, department: str) -> str:
+    raw = json.dumps([tenant_id, department], ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 def _vector_to_bytes(vector: List[float]) -> bytes:
@@ -33,15 +47,31 @@ def _bytes_to_vector(data: bytes) -> List[float]:
     return list(struct.unpack(f"{len(data) // 4}f", data))
 
 
-def _vector_key(tenant_id: str, vector: List[float]) -> str:
+def _vector_key(
+    tenant_id: str,
+    vector: List[float],
+    namespace_version: str = "v1",
+    department: str = "general",
+) -> str:
     """生成向量的确定性缓存键（用于精确匹配的非向量缓存路径）。"""
     vec_hash = hashlib.sha256(json.dumps(vector).encode()).hexdigest()[:16]
-    return f"{_CACHE_PREFIX}:{tenant_id}:{vec_hash}"
+    return f"{_CACHE_PREFIX}:{namespace_version}:{_cache_scope(tenant_id, department)}:{vec_hash}"
 
 
-def _tenant_namespace(tenant_id: str) -> str:
+def _tenant_namespace(tenant_id: str, namespace_version: str = "v1") -> str:
     """生成租户级命名空间键。"""
-    return f"{_CACHE_PREFIX}:{tenant_id}"
+    return f"{_CACHE_PREFIX}:{namespace_version}:{tenant_id}"
+
+
+def _exact_key(
+    tenant_id: str,
+    question_text: str,
+    namespace_version: str = "v1",
+    department: str = "general",
+) -> str:
+    normalized = " ".join(question_text.strip().lower().split())
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+    return f"{_EXACT_CACHE_PREFIX}:{namespace_version}:{_cache_scope(tenant_id, department)}:{digest}"
 
 
 # ── Semantic Cache Manager ──────────────────────────────────────
@@ -60,9 +90,19 @@ class SemanticCacheManager:
     redis_url: str = field(default_factory=lambda: config.redis_url)
     ttl_seconds: int = field(default_factory=lambda: config.redis_cache_ttl_hours * 3600)
     similarity_threshold: float = field(default_factory=lambda: config.redis_cache_threshold)
+    namespace_version: str = field(default_factory=lambda: config.cache_namespace_version)
     vector_dim: int = 768  # 向量维度（bge-base-zh-v1.5 输出 768 维）
     _client: Any = field(default=None, init=False, repr=False)
     _connected: bool = field(default=False, init=False, repr=False)
+    _semantic_ready: bool = field(default=False, init=False, repr=False)
+
+    @property
+    def connected(self) -> bool:
+        return self._connected and self._client is not None
+
+    @property
+    def semantic_ready(self) -> bool:
+        return self.connected and self._semantic_ready
 
     async def connect(self) -> None:
         """建立 Redis 异步连接并创建 VSS 索引。"""
@@ -79,33 +119,43 @@ class SemanticCacheManager:
             # 验证连接
             await self._client.ping()
 
-            # 创建 RediSearch 向量索引（幂等）
-            await self._ensure_index()
-
             self._connected = True
-            logger.info("Redis 语义缓存连接成功: %s", self.redis_url)
+            self._semantic_ready = await self._ensure_index()
+            logger.info(
+                "Redis 缓存连接成功: %s (semantic_ready=%s)",
+                self.redis_url,
+                self._semantic_ready,
+            )
         except ImportError:
             logger.warning("redis 库未安装，语义缓存不可用: pip install redis")
             self._connected = False
         except Exception as exc:
             logger.warning("Redis 连接失败，语义缓存降级: %s", exc)
+            if self._client is not None:
+                try:
+                    await self._client.aclose()
+                except Exception as close_exc:
+                    logger.warning("Redis 失败连接关闭异常: %s", close_exc)
             self._connected = False
+            self._semantic_ready = False
             self._client = None
 
-    async def _ensure_index(self) -> None:
+    async def _ensure_index(self) -> bool:
         """确保 RediSearch 向量索引存在（幂等创建）。"""
         try:
             # 检查索引是否已存在
             await self._client.execute_command(
-                "FT.INFO", _CACHE_INDEX,
+                "FT.INFO", _cache_index(self.namespace_version),
             )
+            self._semantic_ready = True
+            return True
         except Exception:
             # 索引不存在，创建
             try:
                 await self._client.execute_command(
-                    "FT.CREATE", _CACHE_INDEX,
+                    "FT.CREATE", _cache_index(self.namespace_version),
                     "ON", "HASH",
-                    "PREFIX", "1", f"{_CACHE_PREFIX}:",
+                    "PREFIX", "1", f"{_CACHE_PREFIX}:{self.namespace_version}:",
                     "SCHEMA",
                     "tenant_id", "TAG",
                     "question_text", "TEXT",
@@ -118,9 +168,13 @@ class SemanticCacheManager:
                     "M", "16",
                     "EF_CONSTRUCTION", "200",
                 )
-                logger.info("Redis VSS 索引创建成功: %s", _CACHE_INDEX)
+                self._semantic_ready = True
+                logger.info("Redis VSS 索引创建成功: %s", _cache_index(self.namespace_version))
+                return True
             except Exception as exc:
                 logger.warning("Redis VSS 索引创建失败: %s", exc)
+                self._semantic_ready = False
+                return False
 
     async def close(self) -> None:
         """平滑关闭连接。"""
@@ -128,6 +182,7 @@ class SemanticCacheManager:
             await self._client.aclose()
             self._client = None
             self._connected = False
+            self._semantic_ready = False
             logger.info("Redis 缓存连接已关闭")
 
     # ── 语义检索缓存 ────────────────────────────────────────────
@@ -136,6 +191,7 @@ class SemanticCacheManager:
         self,
         tenant_id: str,
         question_vector: List[float],
+        department: str = "general",
     ) -> Optional[str]:
         """在指定租户命名空间下进行 VSS 语义检索。
 
@@ -144,7 +200,14 @@ class SemanticCacheManager:
 
         Fail-safe: Redis 异常时返回 None，跳过缓存。
         """
-        if not self._connected or self._client is None:
+        if not self.semantic_ready:
+            return None
+        if len(question_vector) != self.vector_dim:
+            logger.warning(
+                "Redis 语义缓存向量维度不匹配: expected=%d actual=%d",
+                self.vector_dim,
+                len(question_vector),
+            )
             return None
 
         try:
@@ -152,10 +215,11 @@ class SemanticCacheManager:
             # 在 tenant_id 命名空间内搜索，返回最相似的 1 条
             vector_bytes = _vector_to_bytes(question_vector)
             # TAG 过滤必须放在 query 内，FILTER 关键字不支持 TAG 语法
-            query = f"@tenant_id:{{{tenant_id}}}=>[KNN 1 @question_vector $vector AS score]"
+            tenant_tag = _escape_tag_value(_cache_scope(tenant_id, department))
+            query = f"@tenant_id:{{{tenant_tag}}}=>[KNN 1 @question_vector $vector AS score]"
 
             result = await self._client.execute_command(
-                "FT.SEARCH", _CACHE_INDEX,
+                "FT.SEARCH", _cache_index(self.namespace_version),
                 query,
                 "PARAMS", "2", "vector", vector_bytes,
                 "RETURN", "2", "answer", "score",
@@ -208,6 +272,7 @@ class SemanticCacheManager:
         question_vector: List[float],
         answer: str,
         question_text: str = "",
+        department: str = "general",
     ) -> bool:
         """将新问答对和向量写入 Redis，设置 TTL 超时时间。
 
@@ -218,15 +283,28 @@ class SemanticCacheManager:
 
         Fail-safe: Redis 异常时返回 False，不影响主流程。
         """
-        if not self._connected or self._client is None:
+        if not self.semantic_ready:
+            return False
+        if len(question_vector) != self.vector_dim:
+            logger.warning(
+                "Redis 语义缓存向量维度不匹配: expected=%d actual=%d",
+                self.vector_dim,
+                len(question_vector),
+            )
             return False
 
-        cache_key = _vector_key(tenant_id, question_vector)
+        scope = _cache_scope(tenant_id, department)
+        cache_key = _vector_key(
+            tenant_id,
+            question_vector,
+            self.namespace_version,
+            department,
+        )
 
         try:
             # 构建 Hash 字段
             data = {
-                "tenant_id": tenant_id,
+                "tenant_id": scope,
                 "question_text": question_text[:500],
                 "answer": answer,
                 "question_vector": _vector_to_bytes(question_vector),
@@ -250,12 +328,63 @@ class SemanticCacheManager:
 
     # ── 统计 ────────────────────────────────────────────────────
 
+    async def get_exact_cache(
+        self,
+        tenant_id: str,
+        question_text: str,
+        department: str = "general",
+    ) -> Optional[str]:
+        """Return an exact question hit without computing an embedding."""
+        if not self._connected or self._client is None:
+            return None
+        try:
+            value = await self._client.get(
+                _exact_key(tenant_id, question_text, self.namespace_version, department)
+            )
+            if isinstance(value, bytes):
+                return value.decode("utf-8")
+            return str(value) if value else None
+        except Exception as exc:
+            logger.warning("Redis exact cache lookup failed: %s", exc)
+            return None
+
+    async def set_exact_cache(
+        self,
+        tenant_id: str,
+        question_text: str,
+        answer: str,
+        department: str = "general",
+    ) -> bool:
+        """Store an exact tenant-scoped cache entry."""
+        if not self._connected or self._client is None:
+            return False
+        try:
+            await self._client.set(
+                _exact_key(tenant_id, question_text, self.namespace_version, department),
+                answer,
+                ex=self.ttl_seconds,
+            )
+            return True
+        except Exception as exc:
+            logger.warning("Redis exact cache write failed: %s", exc)
+            return False
+
     async def stats(self) -> Dict[str, Any]:
         """返回缓存统计信息。"""
         if not self._connected or self._client is None:
             return {"connected": False, "cached_keys": 0}
         try:
-            info = await self._client.execute_command("FT.INFO", _CACHE_INDEX)
-            return {"connected": True, "index_info": info[:10] if isinstance(info, list) else str(info)[:200]}
+            info = await self._client.execute_command("FT.INFO", _cache_index(self.namespace_version))
+            return {
+                "connected": True,
+                "semantic_ready": self.semantic_ready,
+                "namespace_version": self.namespace_version,
+                "index_info": info[:10] if isinstance(info, list) else str(info)[:200],
+            }
         except Exception:
-            return {"connected": True, "cached_keys": "unknown"}
+            return {
+                "connected": True,
+                "semantic_ready": False,
+                "namespace_version": self.namespace_version,
+                "cached_keys": "unknown",
+            }

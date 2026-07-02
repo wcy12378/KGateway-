@@ -55,13 +55,25 @@ def reciprocal_rank_fusion(
     Returns:
         按 RRF 分数降序排列的 FusedDocument 列表。
     """
+    if k < 0:
+        raise ValueError("RRF k 必须大于或等于 0")
+    if top_k <= 0:
+        raise ValueError("RRF top_k 必须大于 0")
     # ── 构建排名映射 ────────────────────────────────────────────
     # Dense 榜单：按 vector_score 降序排名
     dense_ranked: Dict[str, int] = {}
     dense_scores: Dict[str, float] = {}
     dense_metas: Dict[str, Dict[str, Any]] = {}
-    for rank, doc in enumerate(dense_results, start=1):
+    dense_ordered = sorted(
+        dense_results,
+        key=lambda item: float(item.get("vector_score", 0.0)),
+        reverse=True,
+    )
+    for doc in dense_ordered:
         doc_id = doc["doc_id"]
+        if doc_id in dense_ranked:
+            continue
+        rank = len(dense_ranked) + 1
         dense_ranked[doc_id] = rank
         dense_scores[doc_id] = doc.get("vector_score", 0.0)
         dense_metas[doc_id] = doc.get("metadata", {})
@@ -70,8 +82,16 @@ def reciprocal_rank_fusion(
     sparse_ranked: Dict[str, int] = {}
     sparse_scores: Dict[str, float] = {}
     sparse_metas: Dict[str, Dict[str, Any]] = {}
-    for rank, doc in enumerate(sparse_results, start=1):
+    sparse_ordered = sorted(
+        sparse_results,
+        key=lambda item: float(item.get("bm25_score", 0.0)),
+        reverse=True,
+    )
+    for doc in sparse_ordered:
         doc_id = doc["doc_id"]
+        if doc_id in sparse_ranked:
+            continue
+        rank = len(sparse_ranked) + 1
         sparse_ranked[doc_id] = rank
         sparse_scores[doc_id] = doc.get("bm25_score", 0.0)
         sparse_metas[doc_id] = doc.get("metadata", {})

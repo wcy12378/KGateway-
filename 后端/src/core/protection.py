@@ -88,22 +88,17 @@ class CircuitBreaker:
 
     def record_success(self) -> None:
         """记录一次成功调用。"""
-        self._total_requests += 1
-
         if self._state == CircuitState.HALF_OPEN:
             self._success_count += 1
-            self._half_open_calls += 1
+            self._half_open_calls = max(0, self._half_open_calls - 1)
             if self._success_count >= self.half_open_max_calls:
                 logger.info("熔断器 %s: HALF_OPEN → CLOSED (连续 %d 次成功)", self.name, self._success_count)
                 self._reset()
         elif self._state == CircuitState.CLOSED:
-            # 成功时重置失败计数（但不归零，保持一定窗口）
-            if self._failure_count > 0:
-                self._failure_count = max(0, self._failure_count - 1)
+            self._failure_count = 0
 
     def record_failure(self, exc: Exception | None = None) -> None:
         """记录一次失败调用（5xx / 429 / TimeoutError）。"""
-        self._total_requests += 1
         self._total_failures += 1
         self._failure_count += 1
         self._last_failure_time = time.monotonic()
@@ -118,6 +113,7 @@ class CircuitBreaker:
             logger.warning("熔断器 %s: HALF_OPEN → OPEN (探测失败)", self.name)
             self._state = CircuitState.OPEN
             self._success_count = 0
+            self._half_open_calls = 0
         elif self._failure_count >= self.failure_threshold:
             logger.error(
                 "🔥 熔断器 %s: CLOSED → OPEN (连续 %d 次失败，熔断 %ds)",

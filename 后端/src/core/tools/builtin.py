@@ -75,20 +75,53 @@ _ALLOWED_AST_NODES = (
     ast.Name,
     ast.Load,
 )
+_MAX_EXPRESSION_LENGTH = 512
+_MAX_AST_NODES = 128
+_MAX_INTEGER_ABS = 10**12
+_MAX_POWER_EXPONENT = 10_000
+_MAX_COLLECTION_MULTIPLIER = 10_000
 
 
 def _validate_expression(expression: str) -> ast.Expression:
     """验证表达式仅包含允许的数学语法。"""
+    if len(expression) > _MAX_EXPRESSION_LENGTH:
+        raise ValueError("表达式规模超过限制")
     parsed = ast.parse(expression, mode="eval")
-    for node in ast.walk(parsed):
+    nodes = list(ast.walk(parsed))
+    if len(nodes) > _MAX_AST_NODES:
+        raise ValueError("表达式规模超过限制")
+    for node in nodes:
         if not isinstance(node, _ALLOWED_AST_NODES):
             raise ValueError(f"不允许的表达式语法: {type(node).__name__}")
         if isinstance(node, ast.Constant) and not isinstance(node.value, (int, float)):
             raise ValueError("只允许数字常量")
+        if isinstance(node, ast.Constant) and isinstance(node.value, int):
+            if abs(node.value) > _MAX_INTEGER_ABS:
+                raise ValueError("整数规模超过限制")
         if isinstance(node, ast.Name) and node.id not in _CALCULATOR_NAMES:
             raise ValueError(f"不允许的名称: {node.id}")
         if isinstance(node, ast.Call) and not isinstance(node.func, ast.Name):
             raise ValueError("只允许调用白名单函数")
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "pow"
+            and len(node.args) >= 2
+            and isinstance(node.args[1], ast.Constant)
+            and isinstance(node.args[1].value, int)
+            and abs(node.args[1].value) > _MAX_POWER_EXPONENT
+        ):
+            raise ValueError("幂运算规模超过限制")
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mult):
+            operands = ((node.left, node.right), (node.right, node.left))
+            if any(
+                isinstance(collection, (ast.List, ast.Tuple))
+                and isinstance(multiplier, ast.Constant)
+                and isinstance(multiplier.value, int)
+                and multiplier.value > _MAX_COLLECTION_MULTIPLIER
+                for collection, multiplier in operands
+            ):
+                raise ValueError("容器运算规模超过限制")
     return parsed
 
 

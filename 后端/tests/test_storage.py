@@ -174,6 +174,7 @@ class TestNeo4jCypher:
         mock_result.summary.counters.labels_added = 0
         mock_result.summary.result_available_after = None
         mock_result.summary.result_consumed_after = None
+        mock_result.consume = AsyncMock(return_value=mock_result.summary)
 
         mock_session = AsyncMock()
         mock_session.run.return_value = mock_result
@@ -217,3 +218,65 @@ class TestGatewayConfigStorage:
         cfg = GatewayConfig()
         assert cfg.neo4j_uri == "bolt://localhost:7687"
         assert cfg.neo4j_user == "neo4j"
+
+
+class TestSemanticCacheReadiness:
+    def test_cache_keys_include_namespace_version(self):
+        from src.core.cache import _exact_key, _vector_key
+
+        exact_v1 = _exact_key("tenant", "same question", "v1")
+        exact_v2 = _exact_key("tenant", "same question", "v2")
+        vector_v1 = _vector_key("tenant", [0.1, 0.2], "v1")
+        vector_v2 = _vector_key("tenant", [0.1, 0.2], "v2")
+
+        assert exact_v1 != exact_v2
+        assert vector_v1 != vector_v2
+        assert ":v1:" in exact_v1
+        assert ":v2:" in vector_v2
+
+    @pytest.mark.asyncio
+    async def test_search_readiness_is_false_when_index_creation_fails(self):
+        from src.core.cache import SemanticCacheManager
+
+        cache = SemanticCacheManager()
+        cache._client = AsyncMock()
+        cache._client.execute_command.side_effect = [
+            RuntimeError("index missing"),
+            RuntimeError("unknown command FT.CREATE"),
+        ]
+
+        ready = await cache._ensure_index()
+
+        assert ready is False
+        assert cache.semantic_ready is False
+
+    @pytest.mark.asyncio
+    async def test_exact_cache_remains_available_without_search_module(self):
+        from src.core.cache import SemanticCacheManager
+
+        cache = SemanticCacheManager(namespace_version="v-test")
+        cache._client = AsyncMock()
+        cache._connected = True
+        cache._semantic_ready = False
+        cache._client.get.return_value = "exact answer"
+
+        assert await cache.get_exact_cache("tenant", "question") == "exact answer"
+        assert await cache.get_cache("tenant", [0.1, 0.2]) is None
+        cache._client.execute_command.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_semantic_query_escapes_tenant_tag_value(self):
+        from src.core.cache import SemanticCacheManager, _cache_scope
+
+        cache = SemanticCacheManager(vector_dim=2)
+        cache._client = AsyncMock()
+        cache._connected = True
+        cache._semantic_ready = True
+        cache._client.execute_command.return_value = [0]
+
+        await cache.get_cache("tenant-with-hyphen", [0.1, 0.2])
+
+        query = cache._client.execute_command.await_args.args[2]
+        scope = _cache_scope("tenant-with-hyphen", "general")
+        assert query.startswith(f"@tenant_id:{{{scope}}}")
+        assert "tenant-with-hyphen" not in query

@@ -18,11 +18,11 @@ import type { LatencyDistribution } from '@/types';
 
 // ---- 5 fixed buckets per spec §3 ----
 const BUCKETS = [
-  { key: 'under_100ms', label: '<100ms', fill: '#32D583' },
-  { key: '100_500ms', label: '100-500', fill: '#2F7BFF' },
-  { key: '500ms_1s', label: '500-1s', fill: '#57A0FF' },
-  { key: '1s_5s', label: '1-5s', fill: '#F5B942' },
-  { key: 'over_5s', label: '>5s', fill: '#F05D68' },
+  { key: 'under_100ms', label: '<100ms', fill: '#16875B' },
+  { key: '100_500ms', label: '100-500', fill: '#2563EB' },
+  { key: '500ms_1s', label: '500-1s', fill: '#5B83DD' },
+  { key: '1s_5s', label: '1-5s', fill: '#B7791F' },
+  { key: 'over_5s', label: '>5s', fill: '#C93747' },
 ] as const;
 
 interface LatencyHistogramProps {
@@ -44,7 +44,7 @@ export function LatencyHistogram({ distribution }: LatencyHistogramProps) {
   );
 
   return (
-    <div className="border border-crt-border bg-crt-bg-elevated p-4 rounded-lg">
+    <div className="surface-panel p-4">
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <span className="font-label text-crt-fg-muted tracking-[0.12em]">
@@ -59,7 +59,11 @@ export function LatencyHistogram({ distribution }: LatencyHistogramProps) {
 
       {/* Chart */}
       <div className="h-44">
-        <ResponsiveContainer width="100%" height="100%">
+        <ResponsiveContainer
+          width="100%"
+          height="100%"
+          initialDimension={{ width: 1, height: 176 }}
+        >
           <BarChart
             data={data}
             margin={{ top: 4, right: 4, bottom: 0, left: 4 }}
@@ -69,34 +73,34 @@ export function LatencyHistogram({ distribution }: LatencyHistogramProps) {
             <XAxis
               dataKey="name"
               tick={{
-                fill: '#91A7C4',
+                fill: '#7B8494',
                 fontSize: 10,
-                fontFamily: 'JetBrains Mono, monospace',
+                fontFamily: 'Inter, sans-serif',
               }}
-              axisLine={{ stroke: '#203451' }}
+              axisLine={{ stroke: '#DDE2EA' }}
               tickLine={false}
             />
             <YAxis
               tick={{
-                fill: '#91A7C4',
+                fill: '#7B8494',
                 fontSize: 10,
-                fontFamily: 'JetBrains Mono, monospace',
+                fontFamily: 'Inter, sans-serif',
               }}
-              axisLine={{ stroke: '#203451' }}
+              axisLine={{ stroke: '#DDE2EA' }}
               tickLine={false}
               width={50}
             />
             <Tooltip
-              cursor={{ fill: 'rgba(255,255,255,0.03)' }}
+              cursor={{ fill: '#F1F4F8' }}
               contentStyle={{
-                background: '#0B1728',
-                border: '1px solid #203451',
-                borderRadius: 6,
-                fontFamily: 'JetBrains Mono, monospace',
+                background: '#FFFFFF',
+                border: '1px solid #DDE2EA',
+                borderRadius: 8,
+                fontFamily: 'Inter, sans-serif',
                 fontSize: '11px',
-                color: '#EAEAEA',
+                color: '#171A21',
               }}
-              labelStyle={{ color: '#888888', fontSize: '9px', marginBottom: 4 }}
+              labelStyle={{ color: '#7B8494', fontSize: '9px', marginBottom: 4 }}
               formatter={(value) => {
                 const v = Number(value);
                 return total > 0
@@ -104,7 +108,7 @@ export function LatencyHistogram({ distribution }: LatencyHistogramProps) {
                   : [v, '数量'];
               }}
             />
-            <Bar dataKey="value" radius={0}>
+            <Bar dataKey="value" radius={[4, 4, 0, 0]}>
               {data.map((_entry, index) => (
                 <Cell key={index} fill={BUCKETS[index].fill} />
               ))}
@@ -118,7 +122,7 @@ export function LatencyHistogram({ distribution }: LatencyHistogramProps) {
         {BUCKETS.map((b, i) => (
           <div key={b.key} className="flex items-center gap-1.5">
             <div
-              className="w-2 h-2"
+              className="h-2 w-2 rounded-full"
               style={{ backgroundColor: b.fill }}
             />
             <span className="font-label text-crt-fg-muted">

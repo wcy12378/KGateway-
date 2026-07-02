@@ -4,62 +4,45 @@
  * 本文件负责展示单条 trace 的时间线、元数据和原始 JSON。它不负责拉取 trace
  * 列表、执行过滤排序或维护分页状态。
  */
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Copy, Check, FileJson } from 'lucide-react';
-import { useState } from 'react';
 import type { TraceRecord, TraceSpan } from '@/types';
 
 // ---- Span display order per spec §5 ----
 const SPAN_ORDER = [
   'circuit_breaker_check',
-  'cache_lookup',
-  'embedding_generation',
-  'vector_search',
-  'bm25_search',
-  'rerank',
+  'semantic_cache_lookup',
+  'embedding',
+  'redis_semantic_cache',
+  'rag_retrieval',
+  'provider_stream',
   'agent_runtime',
 ] as const;
 
 // ---- Subtle grey-scale fills to distinguish span stages ----
 const SPAN_FILLS: Record<string, string> = {
   circuit_breaker_check: '#3A3A3A',
-  cache_lookup: '#4A4A4A',
-  embedding_generation: '#555555',
-  vector_search: '#606060',
-  bm25_search: '#6B6B6B',
-  rerank: '#787878',
+  semantic_cache_lookup: '#4A4A4A',
+  embedding: '#555555',
+  redis_semantic_cache: '#606060',
+  rag_retrieval: '#6B6B6B',
+  provider_stream: '#787878',
   agent_runtime: '#888888',
 };
 
 const SPAN_LABELS: Record<string, string> = {
   circuit_breaker_check: '熔断检查',
-  cache_lookup: '缓存查询',
   semantic_cache_lookup: '语义缓存查询',
-  embedding_generation: '向量生成',
-  vector_search: '向量检索',
-  bm25_search: 'BM25 检索',
-  rerank: '精排',
+  embedding: '向量生成',
+  redis_semantic_cache: 'Redis 语义缓存',
+  rag_retrieval: 'RAG 检索',
+  provider_stream: 'Provider 流式响应',
   agent_runtime: 'Agent 执行',
 };
 
-// ---- Diagonal hattern pattern for visual differentiation ----
 function spanPattern(name: string): React.CSSProperties {
   const fill = SPAN_FILLS[name] || '#555';
-  // Alternate between solid fill and diagonal stripe
-  const idx = SPAN_ORDER.indexOf(name as (typeof SPAN_ORDER)[number]);
-  if (idx % 2 === 0) {
-    return { backgroundColor: fill };
-  }
-  return {
-    backgroundImage: `repeating-linear-gradient(
-      -45deg,
-      transparent,
-      transparent 2px,
-      rgba(255,255,255,0.06) 2px,
-      rgba(255,255,255,0.06) 4px
-    )`,
-    backgroundColor: fill,
-  };
+  return { backgroundColor: fill };
 }
 
 interface TraceDetailPanelProps {
@@ -69,6 +52,11 @@ interface TraceDetailPanelProps {
 export function TraceDetailPanel({ trace }: TraceDetailPanelProps) {
   const [copied, setCopied] = useState(false);
   const [showJson, setShowJson] = useState(false);
+  const copyTimerRef = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current);
+  }, []);
 
   const totalMs = trace.total_latency_ms || 1; // avoid /0
 
@@ -90,10 +78,15 @@ export function TraceDetailPanel({ trace }: TraceDetailPanelProps) {
     return ordered;
   }, [trace.spans]);
 
-  const handleCopyTraceId = () => {
-    navigator.clipboard.writeText(trace.trace_id);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+  const handleCopyTraceId = async () => {
+    try {
+      await navigator.clipboard.writeText(trace.trace_id);
+      setCopied(true);
+      if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = window.setTimeout(() => setCopied(false), 1500);
+    } catch (error) {
+      console.warn('Trace ID 复制失败', error);
+    }
   };
 
   // ---- Metadata fields (all 11) ----
@@ -128,9 +121,9 @@ export function TraceDetailPanel({ trace }: TraceDetailPanelProps) {
   return (
     <div className="border-t border-crt-border bg-crt-bg p-4">
       {/* Metadata grid */}
-      <div className="grid grid-cols-4 gap-px bg-crt-border mb-4">
+      <div className="mb-4 grid grid-cols-2 gap-px bg-crt-border sm:grid-cols-4">
         {metadataFields.map((f) => (
-          <div key={f.label} className="bg-crt-bg-panel p-2.5">
+            <div key={f.label} className="bg-white p-2.5">
             <div className="font-label text-[7px] text-crt-fg-muted tracking-[0.12em] mb-1">
               {f.label}
             </div>
@@ -160,7 +153,7 @@ export function TraceDetailPanel({ trace }: TraceDetailPanelProps) {
             暂无阶段耗时数据
           </div>
         ) : (
-          <div className="border border-crt-border bg-crt-bg-panel">
+          <div className="border border-crt-border bg-white">
             {sortedSpans.map((span, i) => {
               const pct = Math.max(
                 (span.duration_ms / totalMs) * 100,
@@ -229,14 +222,14 @@ export function TraceDetailPanel({ trace }: TraceDetailPanelProps) {
       <div className="flex gap-2">
         <button
           onClick={handleCopyTraceId}
-          className="px-3 py-1.5 border border-crt-border text-crt-fg-dim font-label text-[8px] tracking-widest hover:border-crt-fg hover:text-crt-fg transition-colors flex items-center gap-1.5"
+          className="button-secondary"
         >
           {copied ? <Check size={11} /> : <Copy size={11} />}
           {copied ? '已复制' : '复制 Trace ID'}
         </button>
         <button
           onClick={() => setShowJson(!showJson)}
-          className="px-3 py-1.5 border border-crt-border text-crt-fg-dim font-label text-[8px] tracking-widest hover:border-crt-fg hover:text-crt-fg transition-colors flex items-center gap-1.5"
+          className="button-secondary"
         >
           <FileJson size={11} />
           {showJson ? '隐藏 JSON' : '查看原始 JSON'}

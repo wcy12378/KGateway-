@@ -11,9 +11,10 @@ import math
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger("kagent.db.bm25")
+DocumentKey = Tuple[str, str, str]
 
 
 # ── 中文分词（极简：按字符 + 2-gram 切分）────────────────────────
@@ -75,25 +76,33 @@ class SparseRetriever:
     b: float = 0.75  # BM25 长度归一化参数
 
     # 内部索引结构
-    _documents: Dict[str, Document] = field(default_factory=dict, init=False, repr=False)
-    _tokenized_docs: Dict[str, List[List[str]]] = field(default_factory=dict, init=False, repr=False)
+    _documents: Dict[DocumentKey, Document] = field(default_factory=dict, init=False, repr=False)
+    _tokenized_docs: Dict[str, Dict[DocumentKey, List[str]]] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+    )
     _avg_doc_len: Dict[str, float] = field(default_factory=dict, init=False, repr=False)
     _doc_count: Dict[str, int] = field(default_factory=dict, init=False, repr=False)
-    _inverted_index: Dict[str, Dict[str, int]] = field(
+    _inverted_index: Dict[str, Dict[DocumentKey, int]] = field(
         default_factory=lambda: defaultdict(lambda: defaultdict(int)),
         init=False, repr=False,
     )
-    _tenant_dept_index: Dict[str, Set[str]] = field(
+    _tenant_dept_index: Dict[str, Set[DocumentKey]] = field(
         default_factory=lambda: defaultdict(set),
         init=False, repr=False,
     )
-    _doc_lengths: Dict[str, int] = field(
+    _doc_lengths: Dict[DocumentKey, int] = field(
         default_factory=dict,
         init=False, repr=False,
     )
 
     def _index_key(self, tenant_id: str, department: str) -> str:
         return f"{tenant_id}:{department}"
+
+    @staticmethod
+    def _document_key(tenant_id: str, department: str, doc_id: str) -> DocumentKey:
+        return tenant_id, department, doc_id
 
     # ── 索引构建 ────────────────────────────────────────────────
 
@@ -108,23 +117,35 @@ class SparseRetriever:
     ) -> None:
         """添加文档到索引。"""
         key = self._index_key(tenant_id, department)
-        meta = metadata or {}
+        internal_id = self._document_key(tenant_id, department, doc_id)
+        meta = dict(metadata or {})
         meta.update({"tenant_id": tenant_id, "department": department})
 
         doc = Document(doc_id=doc_id, text=text, metadata=meta)
-        self._documents[doc_id] = doc
-        self._tenant_dept_index[key].add(doc_id)
+        old_tokens = self._tokenized_docs.get(key, {}).get(internal_id, [])
+        for token in set(old_tokens):
+            postings = self._inverted_index.get(token)
+            if postings is not None:
+                postings.pop(internal_id, None)
+                if not postings:
+                    self._inverted_index.pop(token, None)
+        self._documents[internal_id] = doc
+        self._tenant_dept_index[key].add(internal_id)
 
         tokens = _tokenize(text)
-        self._doc_lengths[doc_id] = len(tokens)  # 预计算精确 doc_len
-        self._tokenized_docs.setdefault(key, []).append(tokens)
+        self._doc_lengths[internal_id] = len(tokens)
+        self._tokenized_docs.setdefault(key, {})[internal_id] = tokens
 
         # 更新倒排索引
         for token in set(tokens):
-            self._inverted_index[token][doc_id] += tokens.count(token)
+            self._inverted_index[token][internal_id] = tokens.count(token)
 
         # 重建统计
-        all_tokens = [t for doc_tokens in self._tokenized_docs[key] for t in doc_tokens]
+        all_tokens = [
+            token
+            for doc_tokens in self._tokenized_docs[key].values()
+            for token in doc_tokens
+        ]
         self._avg_doc_len[key] = len(all_tokens) / max(len(self._tokenized_docs[key]), 1)
         self._doc_count[key] = len(self._tokenized_docs[key])
 
@@ -157,7 +178,7 @@ class SparseRetriever:
     def _bm25_score(
         self,
         query_tokens: List[str],
-        doc_id: str,
+        doc_id: DocumentKey,
         index_key: str,
     ) -> float:
         """计算单个文档的 BM25 分数。"""
@@ -169,7 +190,10 @@ class SparseRetriever:
         for qt in query_tokens:
             if qt not in self._inverted_index:
                 continue
-            doc_freq = len(self._inverted_index[qt])
+            scoped_ids = self._tenant_dept_index.get(index_key, set())
+            doc_freq = sum(
+                1 for candidate in self._inverted_index[qt] if candidate in scoped_ids
+            )
             if doc_freq == 0:
                 continue
 
@@ -221,7 +245,7 @@ class SparseRetriever:
             s = self._bm25_score(query_tokens, doc_id, key)
             if s > 0:
                 doc = self._documents[doc_id]
-                scored.append(BM25Result(doc_id=doc_id, score=s, metadata=doc.metadata))
+                scored.append(BM25Result(doc_id=doc.doc_id, score=s, metadata=doc.metadata))
 
         scored.sort(key=lambda x: x.score, reverse=True)
         results = scored[:top_k]

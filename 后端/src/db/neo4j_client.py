@@ -7,12 +7,14 @@ RAG 决策或前端数据展示。
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from neo4j import AsyncDriver, AsyncGraphDatabase, Record
 
 logger = logging.getLogger("kagent.db.neo4j")
+_LABEL_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 
 
 # ── Cypher 查询结果 ─────────────────────────────────────────────
@@ -56,7 +58,13 @@ class GraphRepository:
             logger.info("Neo4j 连接成功: %s", self.uri)
         except Exception as exc:
             logger.error("Neo4j 连接失败: %s", exc)
+            driver = self._driver
             self._driver = None
+            if driver is not None:
+                try:
+                    await driver.close()
+                except Exception as close_exc:
+                    logger.warning("Neo4j 失败连接关闭异常: %s", close_exc)
             raise
 
     async def close(self) -> None:
@@ -97,15 +105,16 @@ class GraphRepository:
                 records = []
                 async for record in result:
                     records.append(dict(record))
+                result_summary = await result.consume()
                 summary = {
                     "counters": {
-                        "nodes_created": result.summary.counters.nodes_created,
-                        "relationships_created": result.summary.counters.relationships_created,
-                        "properties_set": result.summary.counters.properties_set,
-                        "labels_added": result.summary.counters.labels_added,
+                        "nodes_created": result_summary.counters.nodes_created,
+                        "relationships_created": result_summary.counters.relationships_created,
+                        "properties_set": result_summary.counters.properties_set,
+                        "labels_added": result_summary.counters.labels_added,
                     },
-                    "result_available_after": result.summary.result_available_after,
-                    "result_consumed_after": result.summary.result_consumed_after,
+                    "result_available_after": result_summary.result_available_after,
+                    "result_consumed_after": result_summary.result_consumed_after,
                 }
         except Exception as exc:
             logger.error("Cypher 执行失败: query=%s err=%s", query[:100], exc)
@@ -131,6 +140,8 @@ class GraphRepository:
 
         通过 WHERE t.tenant_id = $tenant_id 硬过滤，确保跨租户数据隔离。
         """
+        if label is not None and not _LABEL_PATTERN.fullmatch(label):
+            raise ValueError("Neo4j label 格式无效")
         label_clause = f":{label}" if label else ""
         query = f"""
             MATCH (n{label_clause})-[:BELONGS_TO]->(t:Tenant)
@@ -148,13 +159,20 @@ class GraphRepository:
         properties: Dict[str, Any],
     ) -> CypherResult:
         """在租户下创建实体节点。"""
-        properties["tenant_id"] = tenant_id
+        if not _LABEL_PATTERN.fullmatch(label):
+            raise ValueError("Neo4j label 格式无效")
+        scoped_properties = dict(properties)
+        scoped_properties["tenant_id"] = tenant_id
         query = f"""
             MERGE (t:Tenant {{tenant_id: $tenant_id}})
-            MERGE (n:{label} {{name: $name}})
+            MERGE (n:{label} {{tenant_id: $tenant_id, name: $name}})
             SET n += $properties
             MERGE (n)-[:BELONGS_TO]->(t)
             RETURN n
         """
-        params = {"tenant_id": tenant_id, "name": properties.get("name", ""), "properties": properties}
+        params = {
+            "tenant_id": tenant_id,
+            "name": scoped_properties.get("name", ""),
+            "properties": scoped_properties,
+        }
         return await self.execute_cypher(query, params)

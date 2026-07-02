@@ -1,61 +1,30 @@
-/**
- * 聊天消息列表组件。
- *
- * 本文件负责虚拟化渲染聊天消息并在消息变化时滚动到底部。它不负责消息
- * 内容生成、参数配置或后端连接。
- */
-import { useRef, useEffect } from 'react';
+import { ArrowUpRight, BookOpen, FileSearch, Scale } from 'lucide-react';
 import { Virtuoso } from 'react-virtuoso';
-import type { VirtuosoHandle } from 'react-virtuoso';
 import { useChatStore } from '@/stores/chat';
 import { MessageBubble } from './MessageBubble';
 
+const PROMPTS = [
+  { icon: FileSearch, text: '总结最新的产品需求文档' },
+  { icon: Scale, text: '检索合同审查的内部规范' },
+  { icon: BookOpen, text: '帮我梳理本周项目风险' },
+] as const;
+
 export function MessageList() {
   const messages = useChatStore((s) => s.messages);
-  const isStreaming = useChatStore((s) => s.isStreaming);
-  const virtuosoRef = useRef<VirtuosoHandle>(null);
-
-  // Auto-scroll to bottom during streaming
-  useEffect(() => {
-    if (messages.length > 0) {
-      virtuosoRef.current?.scrollToIndex({
-        index: messages.length - 1,
-        behavior: 'smooth',
-        align: 'end',
-      });
-    }
-  }, [messages, isStreaming]);
-
-  if (messages.length === 0) {
-    return (
-      <div className="flex-1 border border-crt-border bg-crt-bg-elevated flex flex-col items-center justify-center gap-3 rounded-lg px-6 text-center">
-        <div className="font-label text-crt-fg-muted tracking-[0.2em]">
-          等待输入
+  if (!messages.length) return (
+    <div className="flex h-full min-h-[360px] items-center justify-center px-5 py-10">
+      <div className="w-full max-w-xl">
+        <div className="mb-7 text-center">
+          <span className="brand-mark brand-mark-lg mx-auto mb-4" role="img" aria-label="KAgent" />
+          <h2 className="text-[22px] font-semibold tracking-[-.02em]">今天需要处理什么？</h2>
+          <p className="mt-2 text-[13px] text-crt-fg-dim">连接企业知识库与工具，给出可追踪的工作结果。</p>
         </div>
-        <div className="text-crt-fg-dim text-[13px] font-mono max-w-md leading-relaxed">
-          <span className="text-crt-border-strong">&gt;&gt;&gt;</span> KAgent AI
-          网关控制台已就绪。
-          <br />
-          输入请求后将通过 SSE 流式返回模型响应。
-        </div>
-        <div className="mt-4 font-label text-crt-fg-muted">
-          回车发送 · Shift+Enter 换行
-        </div>
+        <div className="grid gap-2 sm:grid-cols-3">{PROMPTS.map(({ icon: Icon, text }) => <button key={text} onClick={() => window.dispatchEvent(new CustomEvent('chat:send', { detail: { text } }))} className="group flex min-h-[96px] flex-col items-start justify-between rounded-[10px] border border-crt-border bg-white p-3 text-left hover:border-slate-300 hover:bg-crt-bg">
+          <Icon size={16} className="text-crt-fg-muted" /><span className="mt-3 text-[12px] leading-5 text-crt-fg-dim">{text}</span><ArrowUpRight size={14} className="self-end text-crt-fg-muted opacity-0 group-hover:opacity-100" />
+        </button>)}</div>
       </div>
-    );
-  }
-
-  return (
-    <div className="flex-1 border border-crt-border bg-crt-bg-elevated overflow-hidden rounded-lg">
-      <Virtuoso
-        ref={virtuosoRef}
-        data={messages}
-        itemContent={(index, msg) => <MessageBubble key={msg.id} message={msg} />}
-        overscan={200}
-        style={{ height: '100%' }}
-        followOutput="smooth"
-        className="p-4"
-      />
     </div>
   );
+
+  return <Virtuoso data={messages} computeItemKey={(_, message) => message.id} itemContent={(_, message) => <MessageBubble message={message} />} overscan={240} followOutput="smooth" style={{ height: '100%' }} />;
 }

@@ -5,7 +5,7 @@
  * 渲染表格或采集后端 trace。
  */
 import { create } from 'zustand';
-import type { TraceRecord, Department } from '@/types';
+import type { Department } from '@/types';
 
 export interface TracesFilters {
   traceIdSearch: string;
@@ -16,25 +16,18 @@ export interface TracesFilters {
 }
 
 interface TracesState {
-  traces: TraceRecord[];
-  total: number;
-  limit: number;
   offset: number;
   filters: TracesFilters;
   expandedTraceId: string | null;
 }
 
 interface TracesActions {
-  setTraces: (traces: TraceRecord[], total: number) => void;
   setOffset: (offset: number) => void;
   setFilters: (filters: Partial<TracesFilters>) => void;
   setExpandedTraceId: (id: string | null) => void;
 }
 
 export const useTracesStore = create<TracesState & TracesActions>((set) => ({
-  traces: [],
-  total: 0,
-  limit: 20,
   offset: 0,
   filters: {
     traceIdSearch: '',
@@ -45,9 +38,8 @@ export const useTracesStore = create<TracesState & TracesActions>((set) => ({
   },
   expandedTraceId: null,
 
-  setTraces: (traces, total) => set({ traces, total }),
   setOffset: (offset) => set({ offset }),
   setFilters: (filters) =>
-    set((s) => ({ filters: { ...s.filters, ...filters } })),
+    set((s) => ({ filters: { ...s.filters, ...filters }, offset: 0 })),
   setExpandedTraceId: (id) => set({ expandedTraceId: id }),
 }));

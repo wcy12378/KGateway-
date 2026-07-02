@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import random
+import time
 import uuid
 
 from locust import HttpUser, between, events, task
@@ -85,14 +86,31 @@ class KAgentUser(HttpUser):
 
     wait_time = between(0.5, 2.0)  # 请求间隔 0.5-2 秒
 
+    def on_start(self):
+        """为每个虚拟用户签发独立的开发 JWT。"""
+        response = self.client.post(
+            "/api/v1/auth/token",
+            json={
+                "user_id": f"loadtest_user_{random.randint(1, 10000)}",
+                "tenant_id": random.choice(TENANTS),
+                "department": random.choice(DEPARTMENTS),
+            },
+            name="/auth/token",
+        )
+        token = response.json().get("access_token", "") if response.ok else ""
+        self.headers = {"Content-Type": "application/json"}
+        if token:
+            self.headers["Authorization"] = f"Bearer {token}"
+
     @task(20)
     def hot_path_stream(self):
         """20% 热路径：高频重复问题 → 压测 Redis 缓存命中。"""
         body = _random_request_body(is_hot=True)
+        started_at = time.perf_counter()
         with self.client.post(
             "/api/v1/gateway/stream",
             json=body,
-            headers={"Content-Type": "application/json"},
+            headers=self.headers,
             name="/stream [HOT]",
             catch_response=True,
             stream=True,
@@ -103,9 +121,11 @@ class KAgentUser(HttpUser):
                 for chunk in response.iter_content(chunk_size=1024):
                     content += chunk
                     if b"data: [DONE]" in content:
+                        response.request_meta["response_time"] = (time.perf_counter() - started_at) * 1000
                         response.success()
                         return
                 # 没有收到 DONE 信号也算部分成功
+                response.request_meta["response_time"] = (time.perf_counter() - started_at) * 1000
                 response.success()
             elif response.status_code == 429:
                 response.failure("Rate limited (429)")
@@ -118,10 +138,11 @@ class KAgentUser(HttpUser):
     def cold_path_stream(self):
         """80% 冷路径：复杂长文本 → 压测 Agent + Rerank + 线程池。"""
         body = _random_request_body(is_hot=False)
+        started_at = time.perf_counter()
         with self.client.post(
             "/api/v1/gateway/stream",
             json=body,
-            headers={"Content-Type": "application/json"},
+            headers=self.headers,
             name="/stream [COLD]",
             catch_response=True,
             stream=True,
@@ -131,8 +152,10 @@ class KAgentUser(HttpUser):
                 for chunk in response.iter_content(chunk_size=1024):
                     content += chunk
                     if b"data: [DONE]" in content:
+                        response.request_meta["response_time"] = (time.perf_counter() - started_at) * 1000
                         response.success()
                         return
+                response.request_meta["response_time"] = (time.perf_counter() - started_at) * 1000
                 response.success()
             elif response.status_code == 429:
                 response.failure("Rate limited (429)")
@@ -151,6 +174,7 @@ class KAgentUser(HttpUser):
         """3% 比例的指标查询。"""
         with self.client.get(
             "/api/v1/gateway/metrics",
+            headers=self.headers,
             name="/metrics",
             catch_response=True,
         ) as response:
@@ -159,8 +183,9 @@ class KAgentUser(HttpUser):
                     data = json.loads(response.text)
                     # 验证关键字段存在
                     required = ["total_requests", "cache_hit_rate", "total_cost_usd"]
+                    metrics = data.get("metrics", {})
                     for key in required:
-                        if key not in data:
+                        if key not in metrics:
                             response.failure(f"Missing metric: {key}")
                             return
                     response.success()
@@ -176,7 +201,7 @@ class KAgentUser(HttpUser):
 def on_test_start(environment, **kwargs):
     """压测启动时打印配置信息。"""
     print("\n" + "=" * 60)
-    print("🚀 KAgent 压力测试启动")
+    print("KAgent 压力测试启动")
     print(f"   目标: {environment.host}")
     print(f"   场景: 20% 热路径 + 80% 冷路径")
     print(f"   租户池: {len(TENANTS)} 个")
@@ -191,6 +216,6 @@ def on_test_stop(environment, **kwargs):
     """压测结束时打印汇总。"""
     stats = environment.runner.stats
     if stats.total.fail_ratio > 0.05:
-        print(f"\n⚠️ 失败率 {stats.total.fail_ratio:.1%} 超过 5% 阈值！")
+        print(f"\nWARNING: 失败率 {stats.total.fail_ratio:.1%} 超过 5% 阈值！")
     else:
-        print(f"\n✅ 压测完成，失败率 {stats.total.fail_ratio:.2%}")
+        print(f"\n压测完成，失败率 {stats.total.fail_ratio:.2%}")

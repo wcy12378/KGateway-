@@ -7,12 +7,20 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from qdrant_client import AsyncQdrantClient, models
 
 logger = logging.getLogger("kagent.db.qdrant")
+
+
+def _scoped_point_id(point_id: str, payload: Dict[str, Any]) -> str:
+    identity = (
+        f"{payload['tenant_id']}\0{payload['department']}\0{point_id}"
+    )
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"kagent-qdrant:{identity}"))
 
 
 # ── 向量搜索结果 ────────────────────────────────────────────────
@@ -54,7 +62,13 @@ class QdrantVectorStore:
             logger.info("Qdrant 连接成功: %s", self.url)
         except Exception as exc:
             logger.error("Qdrant 连接失败: %s", exc)
+            client = self._client
             self._client = None
+            if client is not None:
+                try:
+                    await client.close()
+                except Exception as close_exc:
+                    logger.warning("Qdrant 失败连接关闭异常: %s", close_exc)
             raise
 
     async def close(self) -> None:
@@ -174,7 +188,7 @@ class QdrantVectorStore:
                 collection_name=self.collection,
                 points=[
                     models.PointStruct(
-                        id=point_id,
+                        id=_scoped_point_id(point_id, payload),
                         vector=vector,
                         payload=payload,
                     ),
@@ -201,13 +215,16 @@ class QdrantVectorStore:
             chunk = points[i : i + chunk_size]
             structs = []
             for p in chunk:
-                if "tenant_id" not in p.get("payload", {}):
-                    raise ValueError(f"point {p.get('id')} payload 缺少 tenant_id")
+                payload = p.get("payload", {})
+                if "tenant_id" not in payload or "department" not in payload:
+                    raise ValueError(
+                        f"point {p.get('id')} payload 缺少 tenant_id 或 department"
+                    )
                 structs.append(
                     models.PointStruct(
-                        id=p["id"],
+                        id=_scoped_point_id(str(p["id"]), payload),
                         vector=p["vector"],
-                        payload=p["payload"],
+                        payload=payload,
                     )
                 )
             try:

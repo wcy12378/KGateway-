@@ -1,0 +1,13 @@
+{
+  "prompts": [
+    {"name": "react_default", "version": "1.0.0", "file": "react_default.txt", "description": "默认 ReAct Agent 系统提示词", "active": true},
+    {"name": "research_retriever", "version": "1.0.0", "file": "research_retriever.txt", "description": "企业知识检索 Agent", "active": true},
+    {"name": "research_writer", "version": "1.0.0", "file": "research_writer.txt", "description": "检索结果撰写 Agent", "active": true},
+    {"name": "enterprise_specialist", "version": "1.0.0", "file": "enterprise_specialist.txt", "description": "企业制度知识 Agent", "active": true},
+    {"name": "math_specialist", "version": "1.0.0", "file": "math_specialist.txt", "description": "数学计算 Agent", "active": true},
+    {"name": "general_specialist", "version": "1.0.0", "file": "general_specialist.txt", "description": "通用问题 Agent", "active": true},
+    {"name": "solution_analyst", "version": "1.0.0", "file": "solution_analyst.txt", "description": "方案可行性分析 Agent", "active": true},
+    {"name": "risk_reviewer", "version": "1.0.0", "file": "risk_reviewer.txt", "description": "风险审查 Agent", "active": true},
+    {"name": "review_synthesizer", "version": "1.0.0", "file": "review_synthesizer.txt", "description": "多视角合成 Agent", "active": true}
+  ]
+}

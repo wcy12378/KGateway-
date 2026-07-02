@@ -20,6 +20,7 @@ import { requestJson } from '@/lib/http';
 import { useTracesStore } from '@/stores/traces';
 import { StatusAlert } from '@/components/StatusAlert';
 import type { TraceRecord } from '@/types';
+import { PageHeader } from '@/components/PageHeader';
 
 export default function TracesPage() {
   const offset = useTracesStore((state) => state.offset);
@@ -73,30 +74,27 @@ export default function TracesPage() {
   const currentPage = Math.floor(offset / TRACE_PAGE_SIZE) + 1;
   const visibleTraces = pageTraces(filtered, offset);
 
+  useEffect(() => {
+    if (offset > 0 && offset >= filteredTotal) {
+      const lastOffset = Math.max(0, (totalPages - 1) * TRACE_PAGE_SIZE);
+      setOffset(lastOffset);
+    }
+  }, [filteredTotal, offset, setOffset, totalPages]);
+
   const goToPage = (page: number) => {
     setOffset((page - 1) * TRACE_PAGE_SIZE);
   };
 
   return (
     <div>
-      <div className="flex flex-col gap-3 mb-4 border-b border-crt-border pb-4 lg:flex-row lg:items-end lg:justify-between">
-        <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:gap-4">
-          <h1 className="font-macro text-[clamp(2rem,5vw,3.5rem)] text-crt-fg leading-none tracking-tighter">
-            链路追踪
-          </h1>
-          <span className="font-label text-crt-fg-muted">
-            请求链路记录 / 共 {filteredTotal} 条
-          </span>
-        </div>
-        <button
+      <PageHeader title="链路追踪" description={`请求链路记录，共 ${filteredTotal} 条`} actions={<button
           onClick={fetchTraces}
           disabled={loading}
-          className="px-3 py-1.5 border border-crt-border text-crt-fg-dim font-label tracking-widest hover:border-crt-border-strong hover:text-crt-fg transition-colors disabled:opacity-40 flex items-center gap-1.5 rounded-md"
+          className="button-secondary"
         >
           <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
           刷新
-        </button>
-      </div>
+        </button>} />
 
       {error && (
         <div className="mb-4">

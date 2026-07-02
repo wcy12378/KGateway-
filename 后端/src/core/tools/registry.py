@@ -3,8 +3,14 @@
 from __future__ import annotations
 
 import inspect
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, get_type_hints
+
+from pydantic import TypeAdapter
+
+
+TRUSTED_CONTEXT_PARAMETERS = frozenset({"tenant_id", "user_id", "department", "session_id"})
 
 
 @dataclass
@@ -27,14 +33,41 @@ class Tool:
 
     def to_openai_tool(self) -> Dict[str, Any]:
         """转换为 OpenAI function tool 格式。"""
+        parameters = deepcopy(self.spec.parameters)
+        properties = parameters.get("properties", {})
+        for parameter_name in TRUSTED_CONTEXT_PARAMETERS:
+            properties.pop(parameter_name, None)
+        if isinstance(parameters.get("required"), list):
+            parameters["required"] = [
+                item for item in parameters["required"] if item not in TRUSTED_CONTEXT_PARAMETERS
+            ]
+            if not parameters["required"]:
+                parameters.pop("required")
         return {
             "type": "function",
             "function": {
                 "name": self.name,
                 "description": self.description,
-                "parameters": self.spec.parameters,
+                "parameters": parameters,
             },
         }
+
+    def validate_arguments(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """按函数签名和类型注解验证并规范化工具参数。"""
+        signature = inspect.signature(self.fn)
+        bound = signature.bind(**arguments)
+        type_hints = get_type_hints(self.fn)
+        validated: Dict[str, Any] = {}
+        for parameter_name, value in list(bound.arguments.items()):
+            parameter = signature.parameters[parameter_name]
+            if parameter.kind is inspect.Parameter.VAR_KEYWORD:
+                validated.update(value)
+                continue
+            annotation = type_hints.get(parameter_name)
+            if annotation is not None:
+                value = TypeAdapter(annotation).validate_python(value)
+            validated[parameter_name] = value
+        return validated
 
 
 class ToolRegistry:
@@ -43,8 +76,10 @@ class ToolRegistry:
     def __init__(self) -> None:
         self._tools: Dict[str, Tool] = {}
 
-    def register(self, registered_tool: Tool) -> None:
-        """注册工具；同名工具以最新注册为准。"""
+    def register(self, registered_tool: Tool, *, replace: bool = False) -> None:
+        """注册工具；默认拒绝同名覆盖。"""
+        if registered_tool.name in self._tools and not replace:
+            raise ValueError(f"工具 '{registered_tool.name}' 已注册")
         self._tools[registered_tool.name] = registered_tool
 
     def get(self, name: str) -> Optional[Tool]:
@@ -72,9 +107,14 @@ def get_registry() -> ToolRegistry:
     return _registry
 
 
-def _json_type(annotation: Any) -> str:
-    """把基础 Python 类型转换为 JSON Schema 类型。"""
-    return {str: "string", int: "integer", float: "number", bool: "boolean"}.get(annotation, "string")
+def _json_schema(annotation: Any) -> Dict[str, Any]:
+    """把 Python 类型注解转换为 JSON Schema。"""
+    if annotation is inspect.Parameter.empty:
+        return {"type": "string"}
+    try:
+        return TypeAdapter(annotation).json_schema()
+    except Exception:
+        return {"type": "string"}
 
 
 def tool(name: Optional[str] = None, description: Optional[str] = None) -> Callable:
@@ -91,7 +131,7 @@ def tool(name: Optional[str] = None, description: Optional[str] = None) -> Calla
         required: List[str] = []
         for parameter_name, parameter in signature.parameters.items():
             annotation = type_hints.get(parameter_name, parameter.annotation)
-            properties[parameter_name] = {"type": _json_type(annotation)}
+            properties[parameter_name] = _json_schema(annotation)
             if parameter.default is inspect.Parameter.empty:
                 required.append(parameter_name)
             else:

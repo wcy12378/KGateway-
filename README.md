@@ -6,6 +6,7 @@
 
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![CI](https://github.com/wcy12378/KGateway-/actions/workflows/ci.yml/badge.svg)](https://github.com/wcy12378/KGateway-/actions/workflows/ci.yml)
+[![GitHub Pages](https://img.shields.io/badge/Live_Demo-GitHub_Pages-2563EB?logo=github)](https://wcy12378.github.io/KGateway-/)
 [![React 19](https://img.shields.io/badge/React-19-149ECA?logo=react&logoColor=white)](https://react.dev/)
 [![MCP SDK](https://img.shields.io/badge/MCP-Official_SDK-7C3AED)](https://github.com/modelcontextprotocol/python-sdk)
 [![License](https://img.shields.io/badge/License-MIT-22C55E)](#license)
@@ -23,7 +24,7 @@ KAgent 是一个可运行、可扩展、可观测的企业级 AI Agent 平台。
 
 ## 系统架构
 
-![KAgent System Architecture](./docs/architecture.png)
+![KAgent System Architecture](./docs/assets/architecture.png)
 
 一次请求从 React Console 进入 FastAPI 网关，经过 JWT 认证、熔断与语义缓存后交给 ReAct Agent。Agent 可以选择本地工具、MCP 工具或 Hybrid RAG，并最终通过统一 Provider 层调用模型。所有关键阶段都会记录到 Trace。
 
@@ -59,6 +60,11 @@ python src/main.py
 ```
 
 后端默认运行在 `http://localhost:8000`，健康检查：`GET /health`。
+
+如需启用审核 FAQ 极速通道，将 `后端/config/faq.example.json` 复制为
+`后端/config/faq.json`，按租户和部门填写已审核问答。未配置时自动跳过 FAQ，
+计算器极速通道仍可使用。Redis 必须使用带 Search 模块的 Redis Stack；监控
+接口会分别报告 Redis 连接状态和语义索引 readiness。
 
 ### 4. 灌入知识库数据（可选）
 
@@ -106,6 +112,12 @@ npm run dev
 
 **Redis VSS 复用相似答案，三态熔断器保护下游。** 熔断器在连续失败后进入 OPEN，并在恢复窗口后进入 HALF_OPEN 探测。Dashboard 与 Traces 页面用于观察命中率、延迟、Token、成本和各阶段耗时。
 
+## 压测结果
+
+真实模型 Locust 压测使用 DeepSeek `deepseek-v4-flash`，以 50 个并发用户运行 3 分钟，共完成 645 次请求，失败率 0.00%，平均吞吐量 3.60 RPS。完整 SSE 端到端 P50/P95/P99 延迟分别为 8.9/31/42 秒。
+
+本次已加载 BGE Embedding 与 Reranker；主要瓶颈为上游 LLM 生成时间。完整环境、基线对比和分接口数据见 [真实模型压测报告](./docs/reports/benchmark/benchmark_report.md) 与 [Locust HTML 报告](./docs/reports/benchmark/benchmark_report_prod.html)。
+
 ## 项目结构
 
 ```text
@@ -141,6 +153,7 @@ KAgent/
 | `KAGENT_DEEPSEEK_API_KEY` | — | DeepSeek API Key |
 | `KAGENT_OPENAI_API_KEY` | — | OpenAI API Key |
 | `KAGENT_GEMINI_API_KEY` | — | Google Gemini API Key |
+| `KAGENT_ROUTING_STRATEGY` | `priority` | Provider 路由策略：`priority` 或 `latency` |
 | `KAGENT_MCP_SERVERS` | 空 | stdio MCP Server 配置列表 |
 | `JWT_SECRET` | 开发默认值 | JWT 签名密钥；生产环境必须覆盖 |
 | `KAGENT_ALLOW_DEV_TOKENS` | `false` | 是否开放测试 Token 签发；仅本地开发开启 |

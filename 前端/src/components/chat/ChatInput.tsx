@@ -1,11 +1,5 @@
-/**
- * 聊天输入组件。
- *
- * 本文件负责采集用户输入、提交发送事件和处理停止生成操作。它不负责
- * 组装网关请求、解析 SSE 响应或保存完整聊天状态。
- */
-import { useState, useRef, useCallback } from 'react';
-import { Send, Square } from 'lucide-react';
+import { useCallback, useRef, useState } from 'react';
+import { AtSign, Send, Sparkles, Square } from 'lucide-react';
 import { useChatStore } from '@/stores/chat';
 
 export function ChatInput() {
@@ -13,58 +7,38 @@ export function ChatInput() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isStreaming = useChatStore((s) => s.isStreaming);
   const abortController = useChatStore((s) => s.abortController);
+  const advancedReasoning = useChatStore((s) => s.gatewayParams.advanced_reasoning);
+  const setGatewayParams = useChatStore((s) => s.setGatewayParams);
 
-  const handleCancel = useCallback(() => {
-    abortController?.abort();
-  }, [abortController]);
-
-  const handleSubmit = useCallback(() => {
-    // This will be connected via onSend prop in ChatPage
-    // For now, dispatch a custom event that ChatPage listens to
-    const trimmed = value.trim();
-    if (!trimmed) return;
-    window.dispatchEvent(
-      new CustomEvent('chat:send', { detail: { text: trimmed } })
-    );
+  const submit = useCallback(() => {
+    const text = value.trim();
+    if (!text || isStreaming) return;
+    window.dispatchEvent(new CustomEvent('chat:send', { detail: { text } }));
     setValue('');
-  }, [value]);
+  }, [isStreaming, value]);
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      if (!isStreaming) handleSubmit();
-    }
+  const insertMention = () => {
+    const textarea = textareaRef.current;
+    const start = textarea?.selectionStart ?? value.length;
+    const next = `${value.slice(0, start)}@${value.slice(start)}`;
+    setValue(next);
+    window.requestAnimationFrame(() => {
+      textarea?.focus();
+      textarea?.setSelectionRange(start + 1, start + 1);
+    });
   };
 
-  return (
-    <div className="flex flex-col gap-2 mt-3 sm:flex-row">
-      <textarea
-        ref={textareaRef}
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={handleKeyDown}
-        disabled={isStreaming}
-        className="flex-1 bg-crt-bg-elevated border border-crt-border text-crt-fg text-[13px] font-mono p-3 resize-none min-h-16 placeholder:text-crt-fg-muted focus:outline-none focus:border-crt-border-strong disabled:opacity-40"
-        placeholder={isStreaming ? '正在流式生成...' : '输入请求内容，Enter 发送，Shift+Enter 换行'}
-      />
-      {isStreaming ? (
-        <button
-          onClick={handleCancel}
-          className="px-4 py-3 bg-crt-red text-crt-bg font-label tracking-widest hover:bg-crt-red/80 transition-colors flex items-center justify-center gap-2 rounded-md"
-        >
-          <Square size={12} />
-          停止
-        </button>
-      ) : (
-        <button
-          onClick={handleSubmit}
-          disabled={!value.trim()}
-          className="px-5 py-3 bg-crt-border-strong text-crt-fg font-label tracking-widest hover:bg-[#57A0FF] hover:text-crt-bg transition-colors disabled:opacity-30 disabled:hover:bg-crt-border-strong flex items-center justify-center gap-2 rounded-md"
-        >
-          <Send size={12} />
-          发送
-        </button>
-      )}
+  return <div className="shrink-0 bg-white px-4 pb-4 sm:px-8 sm:pb-6">
+    <div className="mx-auto max-w-[1080px] rounded-[16px] border border-crt-border bg-white p-3 focus-within:border-blue-400 focus-within:shadow-[0_0_0_3px_rgba(37,99,235,.08)] sm:p-4">
+      <textarea ref={textareaRef} value={value} onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submit(); } }} disabled={isStreaming} className="min-h-[62px] w-full resize-none border-0 bg-transparent px-1 text-[14px] leading-6 text-crt-fg outline-none placeholder:text-slate-500 disabled:opacity-50 sm:min-h-[70px]" placeholder={isStreaming ? '正在生成回答…' : '输入问题，按 Enter 发送'} />
+      <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+        <button type="button" onClick={insertMention} className="composer-tool" aria-label="插入提及" title="插入提及"><AtSign size={20} /></button>
+        <button type="button" onClick={() => setGatewayParams({ advanced_reasoning: !advancedReasoning })} className={`composer-tool ${advancedReasoning ? 'bg-blue-50 text-blue-700' : ''}`} aria-pressed={advancedReasoning} aria-label="切换高级推理" title="高级推理"><Sparkles size={20} /></button>
+        <span className="hidden text-[11px] text-crt-fg-muted sm:inline">{advancedReasoning ? '已启用高级推理' : '标准智能对话'}</span>
+        <label className="ml-auto"><span className="sr-only">对话模式</span><select value={advancedReasoning ? 'advanced' : 'standard'} onChange={(event) => setGatewayParams({ advanced_reasoning: event.target.value === 'advanced' })} className="h-9 rounded-lg border border-crt-border bg-white px-3 text-[12px] text-crt-fg-dim outline-none focus:border-blue-500"><option value="standard">智能对话</option><option value="advanced">高级推理</option></select></label>
+        {isStreaming ? <button onClick={() => abortController?.abort()} className="button-secondary h-9 px-4" aria-label="停止生成"><Square size={12} fill="currentColor" />停止</button> : <button onClick={submit} disabled={!value.trim()} className="button-primary h-9 px-5"><Send size={14} />发送</button>}
+      </div>
     </div>
-  );
+    <div className="mx-auto mt-2 flex max-w-[1080px] items-center justify-between px-1 text-[10px] text-crt-fg-muted"><span>回答由 AI 生成，请核验重要信息</span><span>Shift + Enter 换行</span></div>
+  </div>;
 }

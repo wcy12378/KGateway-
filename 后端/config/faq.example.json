@@ -1,0 +1,8 @@
+[
+  {
+    "tenant_id": "replace-with-tenant-id",
+    "department": "finance",
+    "question": "替换为企业审核通过的标准问题",
+    "answer": "替换为企业审核通过的标准答案"
+  }
+]

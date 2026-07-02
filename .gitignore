@@ -27,12 +27,18 @@ dist/
 Thumbs.db
 
 # Large demo/generated files
-docs/demo.gif
+docs/assets/demo.gif
 docs/*.gif
+
+# Local agent/design tooling
+.agents/
+.impeccable/
+spec/archive/
 
 # Test & Reports
 htmlcov/
 .coverage
+.pytest_cache/
 *.log
 
 # Docker

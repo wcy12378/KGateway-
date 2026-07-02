@@ -11,6 +11,7 @@ import { memo } from 'react';
  * Matches spec §3 "最近请求实时流" columns.
  */
 export interface RecentRequest {
+  traceId: string;
   time: string;       // HH:MM:SS
   user: string;
   dept: string;
@@ -24,7 +25,7 @@ interface RecentRequestsTableProps {
 
 const RequestRow = memo(function RequestRow({ row }: { row: RecentRequest }) {
   return (
-    <tr className="border-b border-crt-border text-[12px] font-mono hover:bg-crt-bg-panel transition-colors">
+    <tr className="border-b border-crt-border text-[11px] hover:bg-crt-bg">
       <td className="p-2 text-crt-fg-dim tabular-nums">{row.time}</td>
       <td className="p-2 text-crt-fg">{row.user}</td>
       <td className="p-2">
@@ -62,9 +63,9 @@ export function RecentRequestsTable({ requests }: RecentRequestsTableProps) {
   const display = requests.slice(0, 20);
 
   return (
-    <div className="border border-crt-border bg-crt-bg-elevated rounded-lg overflow-hidden">
+    <div className="surface-panel overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 h-8 border-b border-crt-border">
+      <div className="flex h-10 items-center justify-between border-b border-crt-border px-4">
         <span className="font-label text-crt-fg-muted tracking-[0.12em]">
           最近请求 / 最近 20 条
         </span>
@@ -108,7 +109,7 @@ export function RecentRequestsTable({ requests }: RecentRequestsTableProps) {
               </td>
             </tr>
           ) : (
-            display.map((row, i) => <RequestRow key={i} row={row} />)
+            display.map((row) => <RequestRow key={row.traceId} row={row} />)
           )}
         </tbody>
       </table>

@@ -12,13 +12,11 @@ import { LatencyHistogram } from '@/components/dashboard/LatencyHistogram';
 import { RecentRequestsTable } from '@/components/dashboard/RecentRequestsTable';
 import { GATEWAY_ENDPOINTS, tracesEndpoint } from '@/lib/gateway';
 import { requestJson } from '@/lib/http';
+import { createLatestRequestController } from '@/lib/latestRequest';
 import { StatusAlert } from '@/components/StatusAlert';
 import type { RecentRequest } from '@/components/dashboard/RecentRequestsTable';
 import type { MetricsSnapshot, TraceRecord } from '@/types';
-
-interface GatewayMetricsResponse {
-  metrics: MetricsSnapshot;
-}
+import { PageHeader } from '@/components/PageHeader';
 
 // ---- Interval options ----
 const INTERVALS = [
@@ -38,6 +36,7 @@ function toRecentRequest(t: TraceRecord): RecentRequest {
     second: '2-digit',
   });
   return {
+    traceId: t.trace_id,
     time,
     user: t.user_id,
     dept: t.department,
@@ -56,27 +55,33 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [recentRequests, setRecentRequests] = useState<RecentRequest[]>([]);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const requestControllerRef = useRef(createLatestRequestController());
 
   // ---- Fetch metrics ----
   const fetchMetrics = useCallback(async () => {
+    const activeRequest = requestControllerRef.current.next();
     setRefreshing(true);
     try {
       const [metricsResponse, traces] = await Promise.all([
-        requestJson<GatewayMetricsResponse>(GATEWAY_ENDPOINTS.metrics),
-        requestJson<{ traces: TraceRecord[] }>(tracesEndpoint(20, 0)),
+        requestJson<MetricsSnapshot>(GATEWAY_ENDPOINTS.metrics, { signal: activeRequest.signal }),
+        requestJson<{ traces: TraceRecord[] }>(tracesEndpoint(20, 0), { signal: activeRequest.signal }),
       ]);
-      setSnapshot(metricsResponse.metrics);
+      if (!activeRequest.isCurrent()) return;
+      setSnapshot(metricsResponse);
       setRecentRequests(traces.traces.map(toRecentRequest));
       setError(null);
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      if (!activeRequest.isCurrent()) return;
       setError(err instanceof Error ? err.message : '指标数据加载失败。');
     } finally {
-      setRefreshing(false);
+      if (activeRequest.isCurrent()) setRefreshing(false);
     }
   }, [setSnapshot]);
 
   // ---- Polling with strict cleanup ----
   useEffect(() => {
+    const requestController = requestControllerRef.current;
     const initialTimer = window.setTimeout(fetchMetrics, 0);
 
     // Set up interval
@@ -91,6 +96,7 @@ export default function DashboardPage() {
         intervalRef.current = null;
       }
       window.clearTimeout(initialTimer);
+      requestController.abort();
     };
   }, [refreshInterval, fetchMetrics]);
 
@@ -102,26 +108,15 @@ export default function DashboardPage() {
 
   return (
     <div>
-      {/* Header row */}
-      <div className="flex flex-col gap-3 mb-4 border-b border-crt-border pb-4 lg:flex-row lg:items-end lg:justify-between">
-        <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:gap-4">
-          <h1 className="font-macro text-[clamp(2rem,5vw,3.5rem)] text-crt-fg leading-none tracking-tighter">
-            运行指标
-          </h1>
-          <span className="font-label text-crt-fg-muted">
-            网关监控看板
-          </span>
-        </div>
-
-        {/* 刷新控制 */}
-        <div className="flex flex-wrap items-center gap-3">
+      <PageHeader title="运行指标" description="网关吞吐、缓存效率、模型成本与延迟分布" actions={
+        <>
           <span className="font-label text-crt-fg-muted">
             自动刷新
           </span>
           <select
             value={refreshInterval}
             onChange={(e) => setRefreshInterval(Number(e.target.value))}
-            className="bg-crt-bg-elevated border border-crt-border text-crt-fg text-[12px] font-mono px-2 py-1.5 focus:outline-none focus:border-crt-border-strong"
+            className="field-control h-[34px] w-20 py-1 text-[11px]"
           >
             {INTERVALS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -132,7 +127,7 @@ export default function DashboardPage() {
           <button
             onClick={fetchMetrics}
             disabled={refreshing}
-            className="px-3 py-1.5 border border-crt-border text-crt-fg-dim font-label tracking-widest hover:border-crt-border-strong hover:text-crt-fg transition-colors disabled:opacity-40 flex items-center gap-1.5 rounded-md"
+            className="button-secondary"
           >
             <RefreshCw
               size={12}
@@ -140,8 +135,8 @@ export default function DashboardPage() {
             />
             刷新
           </button>
-        </div>
-      </div>
+        </>
+      } />
 
       {error && (
         <div className="mb-4">

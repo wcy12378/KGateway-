@@ -22,13 +22,15 @@ interface ChatState {
 
 interface ChatActions {
   addMessage: (msg: ChatMessage) => void;
-  updateLastAssistant: (content: string) => void;
-  setLastMessageMetadata: (metadata: ChatMessage['metadata']) => void;
-  setLastMessageStreaming: (streaming: boolean) => void;
+  appendAssistantContent: (id: string, content: string) => void;
+  setMessageMetadata: (id: string, metadata: ChatMessage['metadata']) => void;
+  setMessageStreaming: (id: string, streaming: boolean) => void;
+  setMessagePhase: (id: string, phase: ChatMessage['phase']) => void;
   setStreaming: (v: boolean) => void;
   setSessionId: (id: string) => void;
   setGatewayParams: (params: Partial<ChatState['gatewayParams']>) => void;
   setAbortController: (ctrl: AbortController | null) => void;
+  cancelStreaming: () => void;
   clearMessages: () => void;
   buildRequest: (question: string) => GatewayRequest;
 }
@@ -47,34 +49,44 @@ export const useChatStore = create<ChatState & ChatActions>((set, get) => ({
 
   addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
 
-  updateLastAssistant: (content) =>
+  appendAssistantContent: (id, content) =>
     set((s) => {
-      const msgs = [...s.messages];
-      const last = msgs[msgs.length - 1];
-      if (last && last.role === 'assistant') {
-        msgs[msgs.length - 1] = { ...last, content: last.content + content };
-      }
-      return { messages: msgs };
+      const messages = s.messages.map((message) =>
+        message.id === id && message.role === 'assistant'
+          ? { ...message, content: message.content + content, phase: undefined }
+          : message
+      );
+      return { messages };
     }),
 
-  setLastMessageMetadata: (metadata) =>
+  setMessageMetadata: (id, metadata) =>
     set((s) => {
-      const msgs = [...s.messages];
-      const last = msgs[msgs.length - 1];
-      if (last && last.role === 'assistant') {
-        msgs[msgs.length - 1] = { ...last, metadata, isStreaming: false };
-      }
-      return { messages: msgs };
+      const messages = s.messages.map((message) =>
+        message.id === id && message.role === 'assistant'
+          ? { ...message, metadata, isStreaming: false, phase: undefined }
+          : message
+      );
+      return { messages };
     }),
 
-  setLastMessageStreaming: (streaming) =>
+  setMessageStreaming: (id, streaming) =>
     set((s) => {
-      const msgs = [...s.messages];
-      const last = msgs[msgs.length - 1];
-      if (last && last.role === 'assistant') {
-        msgs[msgs.length - 1] = { ...last, isStreaming: streaming };
-      }
-      return { messages: msgs };
+      const messages = s.messages.map((message) =>
+        message.id === id && message.role === 'assistant'
+          ? { ...message, isStreaming: streaming, phase: streaming ? message.phase : undefined }
+          : message
+      );
+      return { messages };
+    }),
+
+  setMessagePhase: (id, phase) =>
+    set((s) => {
+      const messages = s.messages.map((message) =>
+        message.id === id && message.role === 'assistant'
+          ? { ...message, phase }
+          : message
+      );
+      return { messages };
     }),
 
   setStreaming: (v) => set({ isStreaming: v }),
@@ -85,6 +97,19 @@ export const useChatStore = create<ChatState & ChatActions>((set, get) => ({
     set((s) => ({ gatewayParams: { ...s.gatewayParams, ...params } })),
 
   setAbortController: (ctrl) => set({ abortController: ctrl }),
+
+  cancelStreaming: () => {
+    get().abortController?.abort();
+    set((s) => ({
+      abortController: null,
+      isStreaming: false,
+      messages: s.messages.map((message) =>
+        message.role === 'assistant' && message.isStreaming
+          ? { ...message, isStreaming: false, phase: undefined }
+          : message
+      ),
+    }));
+  },
 
   clearMessages: () => set({ messages: [] }),
 
